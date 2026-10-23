@@ -426,6 +426,7 @@ Playbook: data file → print all columns, mapping table, adapt `schema.py`; ref
 - [x] Evaluation data format: same fields as dev without the two reference columns; inputs are public in `data/buildings_eval.*`
 - [ ] Deliverables page says "3 evaluation buildings", the data and the one-pager say 2 → ask on the day, plan for 2
 - [ ] Does the jury compare the heating load (kW) for B-04/B-05 as well as the colour? (their hidden "reference values" include both) → decides how big the load range is on screen
+- [ ] Mentor, first hour (show the pre-visit PDF from `docs/design/Handover.dc.html` on a phone, then ask): "When an installer comes back from a visit with 'not like this', what was missing beforehand?" · "What does an installer need to know before driving out, and is there an intake form in nuuOS we should match?" · "Do site visits cost the homeowner anything?" (decides whether the pitch may say "no wasted visit fee" or only "no wasted trips"). Answers → new PDF fields if we can sense them (text, photo, bill), otherwise new "Check on site" lines; log in `docs/DESIGN.md`.
 - [ ] Team roles (team so far: Junwoo `jackylee0503` + `cybeuu`, write access since 2026-10-23; split work with git worktrees, never two sessions in one folder)
 - [ ] Is pre-written code allowed
 - [x] Data terms (anonymised, private repo OK; reconfirm), reference format, CSV fields, location granularity, photos in eval data (none)
