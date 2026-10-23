@@ -50,13 +50,15 @@ Key terms에 Heizlast(가장 추운 날 필요 kW), Vorlauftemperatur, JAZ, 단�
 
 ## 타임라인 (10h)
 
+**마감 기준 역산 규칙**: 행사 시작하면 제일 먼저 제출 마감·발표 순서/시간을 확인한다. 실제 빌드 가능 시간 = 마감 − 개회·팀빌딩 − 1.5h(동결·피치). 10h보다 짧으면 P1부터 자르고, 아래 표의 비율대로 다시 나눈다.
+
 | 시간 | 할 일 |
 | --- | --- |
 | 0:00–0:30 | 데이터 열어보고 스키마 필드명·기준값 형식 맞추기 |
 | 0:30–3:00 | P0-a: loader + engine + calibrate + Evaluation 탭 → **여기서 2채 결과 확보** |
 | 3:00–6:00 | P0-b: 추출 + Homeowner 탭 |
 | 6:00–7:30 | P1 |
-| 7:30–8:30 | Cloud 배포, 데모 캐시 고정, 해피패스 3회 리허설 |
+| 7:30–8:30 | Cloud 재배포 확인, 데모 캐시 고정, 해피패스 3회 리허설 (Cloud 첫 배포는 행사 전날 빈 앱으로 끝내둠) |
 | 8:30 | **코드 동결** |
 | 8:30–10:00 | 피치 준비·리허설 |
 
@@ -65,18 +67,19 @@ Key terms에 Heizlast(가장 추운 날 필요 kW), Vorlauftemperatur, JAZ, 단�
 * Python, Streamlit, Pydantic, pandas, numpy, Anthropic API
 * 모델: `claude-sonnet-5-5` (비전 + 구조화 출력)
 * API 키: `st.secrets["ANTHROPIC_API_KEY"]` 우선, 없으면 환경변수. 하드코딩 금지.
-* 배포: Streamlit Community Cloud에 미리 올려둔다 (로컬 백업 유지).
+* 배포: Streamlit Community Cloud에 미리 올려둔다 (로컬 백업 유지). Python 3.11 지정. 리포는 비공개 유지. 발표 10분 전 Cloud 앱을 열어 깨워둔다(잠든 앱 콜드스타트 ~1분).
+* 데이터: `data/`는 nuuEnergy에 사용 조건 확인 후 커밋(Cloud Evaluation 탭에 필요). 공개 금지면 Evaluation은 로컬로 시연. 고지서·사진 원본(`samples/*.jpg|png|pdf|heic`)은 gitignore — 개인정보 가린 버전만 `git add -f`.
 
 ## 파일 구조 (이 외에 새 파일 만들지 말 것)
 
 * `schema.py`    – Pydantic: `House`(입력), `Result`(출력), 고정 가정 상수, 인자→사진 미션 문구
-* `extract.py`   – 사진/고지서 → `House` 부분 채움 + confidence. tool use에 `House.model_json_schema()`로 구조화 출력 강제
+* `extract.py`   – 사진/고지서 → `House` 부분 채움 + confidence. **미션별 작은 스키마**(`BillObs`, `RadiatorObs`, `ExteriorObs`, schema.py에 정의)를 tool use로 강제 → 그 사진에 보일 수 있는 칸만 + 칸별 `missing` 코드. `source`는 app이 채움(LLM 아님). 결과를 House로 매핑해서 반환. 전송 전 Pillow로 긴 변 1568px JPEG 변환(HEIC는 실패 시 "JPG로 다시" 안내)
 * `loader.py`    – 제공된 CSV/JSON → `House` (심사용 경로. 사진 없이 돌아야 함)
 * `engine.py`    – 게이트, 물리 계산, 몬테카를로, 신호등, 다음 질문, 기사 브리핑
-* `calibrate.py` – 3채 기준값과 엔진 출력 비교, 보정 파라미터 조정 (한 번 돌리고 값만 engine에 박음). **과적합 주의: 점 3개 → 파라미터 1~2개만 보정**(난방부하 방법/t_vbh 우선). 나머지는 문헌 기본값 고정
+* `calibrate.py` – 3채 기준값과 엔진 출력 비교, 보정 파라미터 조정 (한 번 돌리고 값만 engine에 박음). **과적합 주의: 점 3개 → 파라미터 딱 1개만 보정** (2개면 leave-one-out의 2채에 정확히 맞아 검증 의미 없음). 기준값이 난방부하면 `t_vbh`, 공급온도면 라디에이터 표 스케일 1개. 나머지는 문헌 기본값 고정
 * `app.py`       – Streamlit. 탭 3개: `🏠 Homeowner` / `🔧 Installer` / `📊 Evaluation`
 * `requirements.txt`, `.gitignore` – 이미 있음. 패키지 추가 시 requirements.txt에도 추가
-* `.claude/commands/` – 슬래시 커맨드 `intake`, `check`, `review` (아래 작업 방식 참고)
+* `.claude/commands/` – 슬래시 커맨드 `intake`, `check`, `hp-review` (아래 작업 방식 참고)
 * `.streamlit/secrets.toml` – 로컬 API 키 (gitignore됨, 커밋 금지). Cloud에선 앱 설정의 Secrets에 입력
 * `data/`        – 제공된 5채 원본
 * `samples/`     – 데모용 사진·고지서, 캐시된 추출 결과 `samples/cached_extract.json`
@@ -99,7 +102,7 @@ def load_buildings(path="data/") -> list[tuple[str, House, dict | None]]   # (id
 
 # extract.py
 def extract(file_bytes: bytes, mime: str, mission: str) -> House           # 부분 채움 + missing
-def merge(base: House, new: House) -> House                                # confidence 높은 쪽 우선
+def merge(base: House, new: House) -> House                                # 필드별 출처 우선순위(아래), 같은 출처끼리만 confidence로
 
 # engine.py
 def evaluate(h: House, p: Params = DEFAULT) -> Result                      # P0 점추정
@@ -133,7 +136,8 @@ def leave_one_out(buildings) -> pd.DataFrame
 `House` (전부 Optional, 각 필드에 confidence):
 
 * `fuel_type` (gas | oil)
-* `annual_fuel_kwh` (float) – 고지서. 기름은 리터 × 10
+* `annual_fuel_kwh` (float) – engine이 아래 원본 값에서 계산 (LLM이 직접 채우지 않음). loader 경로는 데이터 값 그대로
+* 고지서 원본(`BillObs`): `kwh_printed`, `m3`, `zustandszahl`, `brennwert`, `liters`, `period_start`, `period_end` – 보이는 숫자 그대로, 계산 금지
 * `build_year` (int)
 * `building_type` (detached | semi_detached | terraced | multi_family)
 * `living_area_m2` (float)
@@ -159,15 +163,18 @@ def leave_one_out(buildings) -> pd.DataFrame
 * `cost_now_eur`, `cost_hp_eur`, `saving_eur` (범위)
 * `next_photo` (집주인 미션 1개)
 * `installer_checklist` (기사 현장 확인 리스트)
+* `site_flags` (문화재 / 실외기 공간 / 층별 가스 — 확정된 것만)
+* **점추정은 항상 채운다**: `unclear`여도 `best_color`(가장 가능성 높은 색), `required_flow_temp_c`·`heat_load_kw` 점값을 같이 낸다. Evaluation 탭은 이 점값으로 기준값과 비교하고 `unclear`는 옆에 플래그로만 표시
 
 ## 엔진 로직 (`engine.py`)
 
 **0. 게이트 (규칙)**
-`listed_building`, `outdoor_unit_space == False`, `flat_level_gas_heating` 중 확정된 게 있으면 → 빨강, category=site. 모르면 판정 안 막고 기사 체크리스트로.
+`listed_building`, `outdoor_unit_space == False`, `flat_level_gas_heating` 은 **빨강 사유가 아니다** (문화재는 허가로, 공간 부족은 실내기/스플릿으로, 층별 가스는 개별 검토로 대개 해결). 확정되면 신호등은 물리 결과 그대로 두고 `site_flags`에 추가 + 기사 체크리스트 맨 위 + 초록이면 최대 노랑으로 캡. 멘토/데이터가 하드 스톱이라고 명시할 때만 빨강.
 
 **1. 연료 → 열**
 고지서 없고 선납금만 있으면: `annual_fuel_kwh ≈ monthly_advance_eur × 12 / 연료단가`, 범위 넓게(기본요금·실제 단가 차이로 −30%~+10%), confidence 낮게.
-`Q_heat = annual_fuel_kwh × η` (η 기본: 콘덴싱 0.95 / 비콘덴싱 0.85 / 모름 0.9 — 보정 대상)
+**고지서 환산은 engine이 한다** (LLM은 원본 숫자만): `kwh_printed`가 있으면 그대로, 없으면 `m3 × zustandszahl × brennwert`, 기름은 `liters × 10`. 청구기간이 365일이 아니면 `× 365 / 일수`. 각 단계는 Rechenweg에 표시.
+`Q_heat = annual_fuel_kwh × η` — **가스 고지서 kWh는 상위발열량(Hs) 기준**이므로 η도 Hs 기준: 콘덴싱 0.88 / 비콘덴싱 0.80 / 모름 0.84. 기름(10 kWh/L)은 하위발열량(Hi) 기준: 콘덴싱 0.95 / 비콘덴싱 0.85 / 모름 0.9. Rechenweg에 "Hs/Hi 기준" 명시. 보정 대상 아님(문헌값 고정).
 `Q_space = Q_heat − Q_dhw` (dhw_by_boiler면 `Q_dhw ≈ 600 kWh × occupants` 또는 `12.5 kWh/m²` — 보정 대상)
 
 **판정 측도 정의 (피치·UI에 명시)**
@@ -189,9 +196,19 @@ def leave_one_out(buildings) -> pd.DataFrame
   * `ΔT` = 대수평균 과잉온도 `(T_flow − T_return) / ln((T_flow − 20)/(T_return − 20))`
 * 조건: `Σ Φ_rad(T_flow) ≥ P_load` 를 만족하는 최소 `T_flow` 를 수치로 풂 (스프레드 T_flow − T_return = 7~10 K)
 * 근사(산술평균): `ΔT_need = 50 × (P_load / ΣΦ_n)^(1/1.3)`, `T_flow ≈ 20 + ΔT_need + spread/2`
-* `ΣΦ_n`: 라디에이터 타입·치수 → 룩업 테이블 × 개수. 모르면 년식 기반 사전분포 (가장 큰 불확실성 원천)
+* `ΣΦ_n`: 라디에이터 크기 → 아래 정격 표 × 개수 (가장 큰 불확실성 원천. 이 표가 판정을 가른다: 예시 집 8개 기준 0.8/1.5/2.5 kW면 96/69/54°C)
+
+  | 크기 | 대표 형태 (EN 442, 75/65/20) | Φ_n 점값 | MC 범위 |
+  | --- | --- | --- | --- |
+  | small | Typ 11, 높이 600 × 폭 ~600 | 0.6 kW | 0.4–0.8 |
+  | medium | Typ 21/22, 600 × ~800–1000 | 1.3 kW | 1.0–1.7 |
+  | large | Typ 22/33 600 × ≥1200, 또는 큰 주철 리브 | 2.2 kW | 1.7–3.0 |
+
+  출처: 패널 라디에이터 제조사 출력표(EN 442) 대표 범위 **[estimated — 행사 전 카탈로그 1장으로 확인하고 출처 줄을 갱신]**. UI·피치에서 "가정"으로 표시.
+  크기 모름 → small~large 균등 샘플. 개수 모름 → `living_area_m2 / 18` 반올림(방·욕실 기준 가정, ±2). 둘 다 모르면 P0 점추정은 medium × 개수 추정, `confidence` 낮음.
 * 참고: 55/45°C에선 라디에이터가 정격의 약 절반만 냄 ((30/50)^1.3 ≈ 0.52). 옛날 집은 90/70 기준 과대설계가 많아 생각보다 자주 통과
-* 단관식: 뒤쪽 라디에이터 입구온도가 낮아짐 → +5~10 K 패널티 (보정 대상)
+* 단관식: 뒤쪽 라디에이터 입구온도가 낮아짐 → +5~10 K 패널티 (문헌값 고정, 보정 안 함)
+* **표시 클립**: 계산된 T_flow가 70°C 초과면 화면엔 ">70°C"로 표시(스케일 끝), 판정은 빨강·category=temperature. 내부 값은 Rechenweg에만.
 
 **4. JAZ 구간**
 바닥난방 → 4.0 / ≤55 → 3.5 / 55~60 → 2.8 / >60 → none
@@ -203,9 +220,9 @@ def leave_one_out(buildings) -> pd.DataFrame
 
 **6. 신호등** (3채 기준값 보고 경계 조정)
 * 🟢 바닥난방, 또는 라디에이터 ≤55°C 그대로
-* 🟡 55~60°C, 또는 라디에이터 부족분(≤55 달성에 필요한 ΣΦ_n − 현재)이 현재의 ~25% 이하 (= 1~2개 교체 수준)
-* 🔴 >60°C, 또는 게이트 차단
-* ❔ unclear — **P0에서도** 적용: 연간 연료량(고지서/선납금)이나 라디에이터 정보(사진/드롭다운) 중 하나라도 없으면 판정 보류. P1부터는 최대 확률 < 0.6 기준 추가
+* 🟡 55~60°C (현장 플래그로 초록이 캡된 경우 포함)
+* 🔴 >60°C ("부족분 25%" 규칙은 삭제: n=1.3·스프레드 10K에서 ≈60.5°C라 55–60 경계와 중복)
+* ❔ unclear — **P0에서도** 적용: 연간 연료량(고지서/선납금)이나 라디에이터 정보(사진/드롭다운) 중 하나라도 없으면 판정 보류. P1부터는 최대 확률 < 0.6 기준 추가. 단 unclear여도 점추정(`best_color`·온도·부하)은 정격 표 기본값으로 계산해 둔다 (Evaluation 탭·기사 브리핑용)
 * **빨강 증거 기준이 초록보다 높다**: 라디에이터 정보 없이 열수요만 높으면 빨강 금지 → unclear + 라디에이터 사진 요청
 
 **6b. 빨강/노랑 → "이러면 됨" 경로 (물리만, 금액·단열 효과 숫자 지어내지 않음)**
@@ -214,6 +231,8 @@ def leave_one_out(buildings) -> pd.DataFrame
 
 **7. 불확실성**
 비어 있는 인자를 사전분포에서 샘플링해 N=500 몬테카를로. 출력은 전부 p10~p90 범위 + 신호등 확률.
+항상 포함하는 불확실성: 날씨(고지서 1년치, 도일 보정 컷) → `Q_space × U(0.9, 1.1)`. 사전분포 폭은 위 정격 표 범위를 그대로 쓴다(새로 지어내지 않음). 피치에서 "범위 폭은 명시한 가정에서 나온다"고 말한다.
+구현: 샘플을 numpy 배열로 한 번에 계산(샘플마다 pydantic 객체 만들지 말 것). 결과는 `st.cache_data`로 House 해시 기준 캐시.
 최대 확률 < 0.6 이면 `unclear` + 다음 사진 미션.
 
 **8. 다음 질문**
@@ -232,12 +251,13 @@ def leave_one_out(buildings) -> pd.DataFrame
 **드롭다운 (사진 없이 30초)**: 건물 유형, 대략 년식, 면적, 거주 인원, 연료, 바닥난방 여부, 라디에이터 개수, 창문 교체 여부, 문화재 여부, 월 선납금(Abschlag, 선택)
 라디에이터 크기 드롭다운은 작음/중간/큼 **그림 선택**으로.
 
-**핵심 사진 3장** (드롭다운 값이 있으면 사진이 덮어씀, confidence 높은 쪽 우선)
+**핵심 사진 3장** — `merge` 출처 우선순위 (LLM이 매긴 confidence는 보정 안 된 값이라 출처를 이기지 못함):
+`fuel_type`·연료량: bill > dropdown / `radiator_*`·`pipe_system`: photo > dropdown / `build_year`·`living_area_m2`·`occupants`: dropdown > photo / 나머지: photo > dropdown > prior. 같은 출처끼리만 confidence 높은 쪽
 
 1. 외관 — "Ganzes Haus von der Straße fotografieren, mit Dach und etwas Umgebung"
    → `building_type`, `build_year`(범위), `windows`, 외단열 흔적, 지붕 상태, 실외기 자리 힌트, 문화재 느낌
 2. 고지서 — "Heizkostenabrechnung in beliebiger Form: Foto, PDF oder Screenshot aus der App"
-   → `fuel_type`, `annual_fuel_kwh`(m³·상태수·발열량 섞여 있어도 kWh 골라서 365일 환산), 청구기간
+   → `fuel_type`, `BillObs` 원본 숫자(kWh·m³·상태수·발열량·리터 중 보이는 것), 청구기간. 환산·365일 보정은 engine
 3. 거실 라디에이터 — "Größter Heizkörper im Wohnzimmer, schräg von der Seite, mit den Rohren darunter"
    → `radiator_type`(비스듬히 찍어야 판 개수 보임), 크기(콘센트·창틀 기준, A4는 선택), `pipe_system`, 밸브·온도조절기
 
@@ -258,24 +278,24 @@ def leave_one_out(buildings) -> pd.DataFrame
 
 ## 화면 (`app.py`)
 
-* 🏠 Homeowner: 업로드 + `st.camera_input` → 추출 결과(신뢰도) → 신호등 + 이유 → 비용 범위 → 다음 사진 미션 1개. 사진 추가할 때마다 범위가 좁아지는 게 보이게
+* 🏠 Homeowner: `st.file_uploader`(폰에선 후면 카메라 촬영 가능 — 라이브 촬영은 이걸로) + `st.camera_input`(노트북용) → 추출 결과(신뢰도) → 신호등 + 이유 → 비용 범위 → 다음 사진 미션 1개. 사진 추가할 때마다 범위가 좁아지는 게 보이게
 * 🔧 Installer: 기사 브리핑, 채워진 스키마, 빈 칸, 필요 공급온도·부하 범위, 방문 분류(짧은 방문 / 브리핑 들고 방문 / 방문 안 함 + 리드 보관)
 * 📊 Evaluation: 5채 로드 → 3채는 기준값과 나란히 비교, 2채는 결과만. **피치에서 이 화면 사용**
 * 사이드바 Demo mode 토글: 켜면 LLM 대신 `samples/cached_extract.json`
 
 ## 작업 방식 (에이전트 운용)
 
-* **레인 최대 2개.** 레인 A = schema·loader·engine·calibrate, 레인 B = app.py(+extract). B는 `evaluate()`가 없으면 `Result` 더미를 반환하는 스텁으로 먼저 UI를 만든다. 인터페이스 계약만 지키면 충돌 없음
-* 같은 파일을 두 세션이 동시에 고치지 않는다
-* **`/check` 통과할 때마다 커밋.** 터지면 `git restore`/마지막 커밋으로 즉시 롤백. 커밋 없이 30분 넘게 작업 금지
-* P0-a 끝, P0-b 끝, 코드 동결 직전에 **`/review`** (작업 안 본 별도 에이전트 검수)
+* **Claude 세션은 1개.** 순서대로 schema → loader → engine → calibrate → app(Evaluation) → extract → app(Homeowner). 팀원이 합류하면 그때 git worktree로 레인을 나눈다(같은 폴더에서 두 세션 금지)
+* **`/check` 통과할 때마다 커밋** (변경된 파일만 이름으로 `git add`, `-A` 금지). 터지면 마지막 커밋으로 롤백. 커밋 없이 30분 넘게 작업 금지
+* P0-a 끝, P0-b 끝, 코드 동결 직전에 **`/hp-review`** (작업 안 본 별도 에이전트 검수)
 * 현장 정보는 전부 **`/intake`** 로 받는다
-* 슬래시 커맨드: `.claude/commands/` 의 `intake`, `check`, `review`
+* 슬래시 커맨드: `.claude/commands/` 의 `intake`, `check`, `hp-review` (gstack `/review`와 이름 겹치지 않게)
 
 ## 코딩 규칙
 
 * 기존 함수 시그니처 유지. 필요하면 새 함수 추가.
 * LLM 호출·파일 입력은 전부 try/except. 실패 시 캐시로 대체하고 화면에 작게 표시.
+* **Streamlit은 클릭마다 스크립트 전체를 다시 돈다** → `extract()`는 `st.cache_data`로 `(sha256(file_bytes), mission)` 기준 캐시, 누적 House는 `st.session_state`에 저장. 같은 사진으로 API를 두 번 부르지 않는다. "결정론" 장면은 같은 House → `evaluate_mc` 두 번으로 보여준다(LLM 추출은 결정론 아님).
 * 고지서는 PDF도 받음(API 문서 입력). 원본·이름·주소는 저장하지 않고 추출한 숫자만 세션에 유지.
 * UI에 Key terms 4개(Heizlast, Vorlauftemperatur, JAZ, Ein-/Zweirohr)가 결과와 함께 보이게, ⓘ 툴팁으로 설명.
 * 한 번에 한 기능만 수정. 수정 후 `streamlit run app.py`로 해피패스 확인.
@@ -284,6 +304,7 @@ def leave_one_out(buildings) -> pd.DataFrame
 ## 데모 해피패스
 
 (페르소나: 1972년 연립주택 140m², 3인, 가스)
+(전날 계산, 가스 25,000 kWh·η 0.84 Hs·t_vbh 2000 기준: 라디에이터 중간×8 → 71°C 🔴 / 큼×8 → 55.4°C 🟡. 🟡 결말이려면 데모 라디에이터 사진은 "큼"으로 추출되는 것을 쓴다. 보정 후 다시 확인)
 드롭다운 7개 → ❔ unclear, 확률 분산 → "고지서 아무 형식으로" →
 앱 스크린샷 → 연간 kWh 추출, 비용 표시, 여전히 초록/노랑 갈림 → "거실 라디에이터 비스듬히 + 배관" →
 배관 잘린 사진 → 크기만 저장, "조금 더 아래로" 재촬영 안내 →
@@ -340,7 +361,7 @@ def leave_one_out(buildings) -> pd.DataFrame
 * 기준값 필드 확인 후 보정 대상 결정:
   * 난방부하(kW) 있음 → t_vbh 또는 도일법 선택으로 보정
   * 공급온도 있음 → 라디에이터 룩업 스케일 / 단관 패널티 보정
-  * 신호등만 있음 → 색 경계(55/60, 부족분 25%)만 맞춤
+  * 신호등만 있음 → 색 경계(55/60)는 챌린지 표라 고정, 라디에이터 표 스케일 1개만 맞춤
   * 비용·JAZ 있음 → 우리 비용식이 고정 가정대로 같은 값을 내는지 검증 (다르면 그들의 식을 따름)
 * 위치(주소·PLZ·도시) 있음 → `T_NA`, `G` 상수 결정. 없으면 바이에른 대표값 + 범위
 * 연료가 기름 → 리터 × 10 kWh 확인
@@ -360,6 +381,8 @@ def leave_one_out(buildings) -> pd.DataFrame
 
 ### 열린 질문 (닫히면 체크)
 
+- [ ] **제출 마감 시간·발표 순서** (→ 타임라인 역산 규칙)
+- [ ] 데이터 사용 조건 (리포 커밋·Cloud 업로드 가능한지)
 - [ ] 기준값 형식 (난방부하 / 공급온도 / 신호등 / 비용 중 무엇)
 - [ ] CSV/JSON 필드명
 - [ ] 건물 위치 → 설계 외기온도·도일
@@ -370,6 +393,7 @@ def leave_one_out(buildings) -> pd.DataFrame
 ### 결정 로그 (형식: `HH:MM 무엇을 왜 바꿈`)
 
 - (시작 전) kNN+가짜 DB → 물리 엔진. 이유: 심사가 실제 2채 기준값 대비 정확도, synthetic DB는 방어 불가
+- (전날 eng review) 라디에이터 정격 표·Hs 기준 η·게이트=기사 확인·25% 규칙 삭제·보정 1개·T_flow 클립·날씨 ±10% / 고지서는 원본 숫자만 추출·미션별 스키마·출처 우선 merge·추출 캐시·사진 리사이즈·평가 탭 점추정 항상 표시 / 세션 1개·/check는 변경 파일만 커밋·/review→/hp-review / 마감 역산·전날 Cloud 배포
 
 ---
 
@@ -395,7 +419,7 @@ def leave_one_out(buildings) -> pd.DataFrame
 
 **몬테카를로**: 모르는 값(예: 라디에이터 총출력)에 숫자 하나를 찍지 않고, 그럴듯한 범위에서 500번 랜덤으로 뽑아 엔진을 500번 돌림. 결과 분포 → 범위(p10~p90)와 색 확률. 엔진은 그대로, 반복문으로 감쌀 뿐. "다음 질문"은 각 미지 값을 안다고 치고 다시 돌렸을 때 결과가 가장 선명해지는 걸 고름.
 
-**보정(calibration)**: 3채 = 학습셋, 2채 = 테스트셋. 3채에서 엔진 값과 nuuEnergy 기준값을 비교해 상수 1~2개만 조정. 점 3개로 많이 맞추면 과적합 → 2채에서 터짐.
+**보정(calibration)**: 3채 = 학습셋, 2채 = 테스트셋. 3채에서 엔진 값과 nuuEnergy 기준값을 비교해 상수 1개만 조정. 점 3개로 많이 맞추면 과적합 → 2채에서 터짐.
 
 **기사(Heizungsbauer) 현장 방문 흐름** (일반적인 흐름, nuuEnergy 실제 프로세스는 현장에서 확인)
 1. 기존 난방 확인: 보일러 종류·연식, 소비량, 공급온도 설정
