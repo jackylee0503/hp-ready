@@ -90,10 +90,10 @@ What we learned:
 | Priority | Content |
 | --- | --- |
 | P0-a | Loader + LLM notes (cached) + engine + Monte Carlo + calibration + Evaluation tab |
-| P0-b | Homeowner answer card (dropdowns): colour, reason, what's still open |
-| P0-c | Installer visit prep sheet |
-| P1 | Bill extraction (official bonus) and radiator photo extraction, entropy-based next question |
-| P2 | Outdoor-unit spot from a photo (official bonus), CSV batch upload, photo retake loop, degree-day method, polish |
+| P0-b | Homeowner wizard (typed description + exterior photo → radiator photo → bill or listing → confirm; the LLM reads, the user confirms) + answer card: colour, reason, what's still open, next step. Both official bonuses live here |
+| P0-c | Pre-filled quote request + installer visit prep sheet |
+| P1 | Entropy-based next question, more than one retake, boiler nameplate photo |
+| P2 | CSV batch upload, energy-certificate photo, degree-day method, polish |
 
 ## 7. Risks
 
@@ -127,6 +127,7 @@ What we learned:
 | CEO D11 | Batch CSV upload → P2; Evaluation table gets lead score and visit type | Only 5 real rows exist |
 | 2026-10-23 21:20 | Aligned to the organiser's Notion pages (now `docs/challenge/`): homeowner answer card with "what's still open" → P0-b, installer → P0-c, demo opens with the homeowner; colours = organiser meanings (missing data yellow "can't tell yet", red only for an obstacle); η 0.88 and 1,000 kWh hot water per person; both load methods shown with their range; W/m² table split partially/fully, all inside the organiser bands (dev calibration unchanged); confirmed single-pipe caps green at yellow; mixed heating defined; rooms-vs-area contradiction; cost above 60 °C at JAZ 2.8 as a lower bound; local browser run primary; evaluation inputs added to `data/` | The organiser pages define the user, the colours and the guardrail numbers; the evaluation inputs turned out to be public |
 | 2026-10-23 22:37 | Homeowner flow: 4 required tap questions (year band, area, heating surfaces, insulation), the rest optional; next-step box by verdict (quote / on-site check / one more question / path to yellow); pre-filled quote request (homeowner adds name, contact, postcode; mailto draft + JSON download, nothing sent or stored) in P0-c next to the installer sheet | As homeowners, Junwoo and Mohammed found getting a quote online means long forms; our result already holds what those forms ask, so the homeowner's next step costs one tap |
+| 2026-10-23 23:10 | Homeowner input becomes a 4-step wizard: typed description (+ optional exterior photo) → radiator photo → bill or sale listing → "is this right?"; the LLM reads each step (one mission each), the engine merges by a source rule and asks only gaps that change the colour (≤2). Typing only, no voice. Bill reading and the outdoor-unit photo (both official bonuses) move into P0-b. Renovation "don't know" that flips the colour → yellow "can't tell yet" plus that question. Fictional demo inputs with expected values in `assets/demo/` | A form calculator already exists for free (UBA/ifeu "Gebäudecheck Wärmepumpe", Dec 2025, room by room); our edge is no typing of numbers, no guessing and a hand-over. Scratch run on the persona: house facts and radiator size move the verdict most (88 → 70 → 59 °C), the bill not at all. Sale listings carry certificate data, which adds buyers as a second user |
 
 ## 9. Domain primer
 
