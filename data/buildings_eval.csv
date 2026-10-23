@@ -1,0 +1,3 @@
+building_id,construction_year,floor_area_m2,renovation_status,heat_distribution,annual_consumption_kwh,energy_carrier,energy_carrier_detail,radiator_info,pipe_system,flow_temperature_c,persons_in_household,hot_water_via_heating,rooms,building_notes,location
+B-04,1987,160,,radiators,25000,oil,"heating oil, approx. 2,500 litres per year",12 radiators with valve blocks; type and age not documented,single-pipe,,3,yes,,Semi-detached house. No renovation information.,Munich area (85xxx)
+B-05,2006,125,,mixed,27000,gas,natural gas,2 heating circuits: underfloor heating plus 8 radiators with presettable valves; type and age not documented,unknown,,3,yes,14,No additional insulation on facade or roof. Double low-e glazing. Solar thermal system present.,Munich area (85xxx)

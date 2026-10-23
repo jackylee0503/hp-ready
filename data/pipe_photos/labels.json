@@ -1,0 +1,11 @@
+{
+  "_source": "Organiser page 'Background: Single-pipe vs. two-pipe heating' (docs/challenge/05_single_vs_two_pipe.md). Real anonymised nuuEnergy photos, each label confirmed by a heating installer. File names come from nuuEnergy and still say 'unklar'/'vermutet' from before the installer check; the label below is what counts.",
+  "_use": "Test set for the P1 radiator photo mission (pipe_system). The mission must return 'unknown' for 07, not guess.",
+  "photos": [
+    {"file": "06_unklar_rohrverzweigung.jpg",        "pipe_system": "single-pipe", "cue": "one long pipe along the wall, tapped by a fitting at the radiator (textbook loop)"},
+    {"file": "11_unklar_h-block-seitenanschluss.jpeg", "pipe_system": "single-pipe", "cue": "looks like a normal H-block, but has an extra adjustable side port for the bypass"},
+    {"file": "05_zweirohr-vermutet_kompakt.jpeg",    "pipe_system": "two-pipe",    "cue": "valve at the top, separate return at the bottom, two separate pipes into the floor"},
+    {"file": "10_unklar_h-block-simplex.jpeg",       "pipe_system": "two-pipe",    "cue": "newer H-block with no side bypass port"},
+    {"file": "07_unklar_bad-multiblock.jpeg",        "pipe_system": "unknown",     "cue": "bathroom valve block that exists for both systems; the installer could not decide either"}
+  ]
+}
