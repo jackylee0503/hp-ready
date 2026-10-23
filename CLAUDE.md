@@ -91,7 +91,7 @@ First thing on the day: get the submission deadline and pitch slot. Build time =
 ## Files (create no others)
 
 - `schema.py`: Pydantic `House`, `Result`, `NotesObs`, photo schemas (`BillObs`, `RadiatorObs`, `ExteriorObs`), fixed constants, photo-mission texts.
-- `loader.py`: CSV/JSON → `House` (+ reference dict for dev cases). Must run without photos.
+- `loader.py`: CSV/JSON → `House` (+ reference dict for dev cases). Must run without photos. Every set exists as both CSV and JSON: read the JSON (typed booleans and nulls), CSV only if the JSON is missing, one row per `building_id` (5 buildings, not 10).
 - `engine.py`: physics, contradictions, Monte Carlo, traffic light, next question, installer brief.
 - `calibrate.py`: fit k on the 3 dev cases (one parameter, geometric mean of log ratios), leave-one-out.
 - `extract.py` (P1): photo/bill → `House` via per-mission tool-use schemas; resize to 1568 px JPEG before sending.
@@ -142,7 +142,7 @@ def merge(base: House, new: House) -> House                                # per
 | JAZ radiators 55-60 °C | 2.8 |
 | Radiators >60 °C | not in table → red (obstacle); cost shown at JAZ 2.8 as a lower bound |
 
-Gas heat ≈ 0.11/η ≈ 12.2 ct/kWh at η 0.9; worst HP case 0.26/2.8 ≈ 9.3 ct, so ≤60 °C always saves running cost. Break-even JAZ ≈ 2.1.
+Gas heat ≈ 0.11/η ≈ 12.5 ct/kWh at η 0.88 (oil ≈ 19.3 ct); worst HP case 0.26/2.8 ≈ 9.3 ct, so ≤60 °C always saves running cost. Break-even JAZ ≈ 2.1 against gas.
 
 ## Data mapping (code adapts to the data)
 
@@ -188,7 +188,7 @@ Bill-based heating load `heat_load_bill_kw` = `Q_space / 2,000 h`, low/high `Q_s
 
 **Required flow temperature** = supply water temperature that keeps 20 °C indoors with the existing radiators at the local design outdoor temperature (Auslegungsvorlauftemperatur). 55/60 °C are the challenge's JAZ bands, not our choice.
 
-**2. Heating load (Heizlast): area × age is primary.** Consumption-based load needed 625-2,400 full-load hours across the dev cases, so it cannot be calibrated with one parameter.
+**2. Heating load (Heizlast): area × age is primary.** With the organiser's bill method the consumption-based load needs about 500-2,290 full-load hours to match the dev references (organiser: realistic 1,800-2,100), so it cannot be calibrated with one parameter.
 `P_load = k × w(age, renovation) × heated_area`
 
 | Built | Unrenovated / unknown W/m² | Partially renovated W/m² | Fully renovated W/m² | Organiser band (`03_technical_guardrails.md` §1a) |
@@ -261,11 +261,11 @@ Dev check (k 1.01): point estimate B-01 54.0 °C green ✅, B-03 58.2 °C yellow
 **6c. What's still open (`open_checks`, organiser output #2).** Homeowner words, most decisive first, at most about 6 lines:
 1. Missing core fields that moved the result (from `next_question`): "We don't know X; with it the answer gets sharper."
 2. Each contradiction (step 2b) as a plain question, e.g. "Your bill and your house size disagree: is all heated area included?"
-3. Assumed values that decide the colour: radiator type and size when not documented; the pipe system when unknown (organiser sentence: "Heating pipe system unclear. A technician should check whether this is a single-pipe system, because that can require a higher flow temperature.").
+3. Assumed values that decide the colour: radiator type and size when not documented (known small or old radiators: organiser says "flag as needs checking", so a technician checks room by room); the pipe system when unknown (organiser sentence: "Heating pipe system unclear. A technician should check whether this is a single-pipe system, because that can require a higher flow temperature.").
 4. Always (organiser, `03_technical_guardrails.md` §4): exact heating load, electrical capacity, where the outdoor unit can go.
 The installer checklist (step 9) carries the same items in installer words.
 
-**7. Uncertainty (Monte Carlo, P0).** N=500, seed 0, numpy vectors (no per-sample Pydantic objects), cached with `st.cache_data`. Draw: W/m² × U(0.8, 1.2); radiator size as above × U(0.85, 1.15); unused area × U(0.7, 1.0); contradicted values widened. Output colour probabilities and p10/p50/p90.
+**7. Uncertainty (Monte Carlo, P0).** N=500, seed 0, numpy vectors (no per-sample Pydantic objects), cached with `st.cache_data`. Draw: W/m² × U(0.8, 1.2); radiator size as above × U(0.85, 1.15); unused area × U(0.7, 1.0); single-pipe penalty U(5, 10) K, unknown pipe in a 1960-1979 house U(0, 10) K (step 3b); mixed radiator share U(0.5, 1.0) when rooms are unknown (step 3); contradicted values widened (e.g. area up to the bill-implied area, step 2b). Output colour probabilities and p10/p50/p90.
 `best_color` = colour of the p50 flow temperature (not the most frequent colour: the radiator-size tail pushes the mode toward red, B-03 shows this). Max probability < 0.6 → `boundary`, show the top two colours with probabilities ("uncertain: 🟢/🟡").
 
 **8. Next question.** P0: fixed order of empty fields (radiator size > fuel amount > build year). P1: the unknown whose fixing reduces colour entropy most, divided by effort.
