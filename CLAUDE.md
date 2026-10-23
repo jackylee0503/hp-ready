@@ -62,6 +62,19 @@ Key terms에 Heizlast(가장 추운 날 필요 kW), Vorlauftemperatur, JAZ, 단�
 | 8:30 | **코드 동결** |
 | 8:30–10:00 | 피치 준비·리허설 |
 
+## 행사 전 마일스톤 (에이전트: 세션 시작 시 여기부터 확인하고, 안 끝난 첫 항목을 사용자에게 알려줄 것)
+
+- [x] M0 리포·venv·의존성 (`C:\dev\hp-ready`, 비공개 GitHub, Smart App Control 때문에 pandas<3·pyarrow<22·pillow<12 고정)
+- [x] M1 eng review 반영 (16f8578) + 라디에이터 정격 표 출처 확인 (Kermi/Buderus EN 442)
+- [ ] M2 **API 확인** — `.streamlit/secrets.toml`에 `ANTHROPIC_API_KEY = "..."` (사용자가 직접 붙여넣기), `claude-sonnet-5-5`로 실제 호출 1회 성공. 실패하면 응답 오류 원문 보고 모델 ID부터 확인
+- [ ] M3 **Cloud 첫 배포** — share.streamlit.io → New app → `jackylee0503/hp-ready`, branch `main`, file `app.py`, Advanced settings에서 Python 3.11 + Secrets에 키 입력 → URL에서 "HP-Ready (setup)" 화면 확인. URL을 여기 적기: `(배포 후 기입)`
+- [ ] M4 **데모 사진** (`samples/`에 저장, 원본은 gitignore됨):
+  - [ ] 고지서 1장: 연간 kWh 또는 m³·청구기간이 보이는 스크린샷/사진. 이름·주소·고객번호는 가리기
+  - [ ] 큰 라디에이터 (Typ 22 긴 것 또는 Typ 33): ① 배관이 잘린 사진 ② 비스듬히 + 아래 배관까지 나온 사진
+  - [ ] 엉뚱한 사진 1장 (고양이·컵 등) → `wrong_object` 시연용
+  - [ ] (선택) 집 외관 1장
+- [ ] M5 행사 당일 첫 30분: 제출 마감·발표 시간 확인 → 타임라인 역산, 데이터 사용 조건 확인 (`/intake`로 입력)
+
 ## 스택
 
 * Python, Streamlit, Pydantic, pandas, numpy, Anthropic API
@@ -200,11 +213,12 @@ def leave_one_out(buildings) -> pd.DataFrame
 
   | 크기 | 대표 형태 (EN 442, 75/65/20) | Φ_n 점값 | MC 범위 |
   | --- | --- | --- | --- |
-  | small | Typ 11, 높이 600 × 폭 ~600 | 0.6 kW | 0.4–0.8 |
-  | medium | Typ 21/22, 600 × ~800–1000 | 1.3 kW | 1.0–1.7 |
-  | large | Typ 22/33 600 × ≥1200, 또는 큰 주철 리브 | 2.2 kW | 1.7–3.0 |
+  | small | Typ 11 (판 1장), 600 × ~800 | 0.7 kW | 0.5–0.9 |
+  | medium | Typ 22 (판 2장), 600 × 800–1000 | 1.5 kW | 1.3–1.7 |
+  | large | Typ 22 600 × 1200, 또는 Typ 33 (판 3장) 600 × 1000–1200 | 2.2 kW | 2.0–2.7 |
 
-  출처: 패널 라디에이터 제조사 출력표(EN 442) 대표 범위 **[estimated — 행사 전 카탈로그 1장으로 확인하고 출처 줄을 갱신]**. UI·피치에서 "가정"으로 표시.
+  출처 (75/65/20 °C, EN 442): Kermi therm-x2 Typ 22 600×800 = 1,333 W, 600×1000 = 1,666 W, 600×1200 = 1,999 W / Typ 33 600×1000 = 2,236 W, 600×1200 = 2,683 W / Buderus VC-Profil Typ 22 600×1000 = 1,688 W ([energiefluss24.de/waermepumpe/plattenheizkoerper](https://www.energiefluss24.de/waermepumpe/plattenheizkoerper), 2026-10-23 확인). **small(Typ 11)만 [estimated]**: 판 1장 ≈ Typ 22의 약 절반으로 가정. UI·피치에서 "제조사 표 기준 가정"으로 표시.
+  사진에서 크기 판정 기준: 판(Platte) 개수 = 비스듬히 찍은 사진의 두께(11 ≈ 6–7 cm, 22 ≈ 10 cm, 33 ≈ 16 cm), 폭은 콘센트(≈8 cm)·창틀 기준.
   크기 모름 → small~large 균등 샘플. 개수 모름 → `living_area_m2 / 18` 반올림(방·욕실 기준 가정, ±2). 둘 다 모르면 P0 점추정은 medium × 개수 추정, `confidence` 낮음.
 * 참고: 55/45°C에선 라디에이터가 정격의 약 절반만 냄 ((30/50)^1.3 ≈ 0.52). 옛날 집은 90/70 기준 과대설계가 많아 생각보다 자주 통과
 * 단관식: 뒤쪽 라디에이터 입구온도가 낮아짐 → +5~10 K 패널티 (문헌값 고정, 보정 안 함)
@@ -304,7 +318,7 @@ def leave_one_out(buildings) -> pd.DataFrame
 ## 데모 해피패스
 
 (페르소나: 1972년 연립주택 140m², 3인, 가스)
-(전날 계산, 가스 25,000 kWh·η 0.84 Hs·t_vbh 2000 기준: 라디에이터 중간×8 → 71°C 🔴 / 큼×8 → 55.4°C 🟡. 🟡 결말이려면 데모 라디에이터 사진은 "큼"으로 추출되는 것을 쓴다. 보정 후 다시 확인)
+(전날 계산, 가스 25,000 kWh·η 0.84 Hs·t_vbh 2000 기준: 라디에이터 중간(1.5)×8 → 66°C 🔴 / 큼(2.2)×8 → 55.4°C 🟡. 🟡 결말이려면 데모 라디에이터 사진은 "큼"(Typ 22 긴 것 또는 Typ 33)으로 추출되는 것을 쓴다. 보정 후 다시 확인)
 드롭다운 7개 → ❔ unclear, 확률 분산 → "고지서 아무 형식으로" →
 앱 스크린샷 → 연간 kWh 추출, 비용 표시, 여전히 초록/노랑 갈림 → "거실 라디에이터 비스듬히 + 배관" →
 배관 잘린 사진 → 크기만 저장, "조금 더 아래로" 재촬영 안내 →
