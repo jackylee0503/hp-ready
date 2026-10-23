@@ -69,7 +69,7 @@ Key terms에 Heizlast(가장 추운 날 필요 kW), Vorlauftemperatur, JAZ, 단�
 - [x] M0 리포·venv·의존성 (`C:\dev\hp-ready`, 비공개 GitHub, Smart App Control 때문에 pandas<3·pyarrow<22·pillow<12 고정)
 - [x] M1 eng review 반영 (16f8578) + 라디에이터 정격 표 출처 확인 (Kermi/Buderus EN 442)
 - [ ] M2 **API 확인** — `.streamlit/secrets.toml`에 `ANTHROPIC_API_KEY = "..."` (사용자가 직접 붙여넣기), `claude-sonnet-5-5`로 실제 호출 1회 성공. 실패하면 응답 오류 원문 보고 모델 ID부터 확인
-- [ ] M3 **Cloud 첫 배포** — share.streamlit.io → New app → `jackylee0503/hp-ready`, branch `main`, file `app.py`, Advanced settings에서 Python 3.11 + Secrets에 키 입력 → URL에서 "HP-Ready (setup)" 화면 확인. URL을 여기 적기: `(배포 후 기입)`
+- [x] M3 **Cloud 첫 배포** (전날 성공, "HP-Ready (setup)" 화면 확인. 남은 것: Secrets에 키 넣기는 M2와 함께, URL 기입) — share.streamlit.io → New app → `jackylee0503/hp-ready`, branch `main`, file `app.py`, Advanced settings에서 Python 3.11 + Secrets에 키 입력 → URL에서 "HP-Ready (setup)" 화면 확인. URL을 여기 적기: `(배포 후 기입)`
 - [x] M1b dev 데이터 반영 (`data/buildings_dev.csv`, 면적·연식 부하 k=0.93, 모순 점검 규칙)
 - [ ] M4 **데모 사진** — 우선순위 낮아짐(데이터엔 사진 없음, 보너스 장면용). 고지서 1장 + 큰 라디에이터 1~2장이면 충분 (`samples/`에 저장, 원본은 gitignore됨):
   - [ ] 고지서 1장: 연간 kWh 또는 m³·청구기간이 보이는 스크린샷/사진. 이름·주소·고객번호는 가리기
