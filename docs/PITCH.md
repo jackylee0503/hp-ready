@@ -17,7 +17,7 @@ Numbers below are first estimates from the spec; replace them with the engine's 
 
 ## 1:00-3:15 Live demo
 
-1. **🏠 Homeowner (≈60 s).** Enter the persona by dropdowns, well under three minutes. "The homeowner gets one sentence, a probability and what's still open, not a false promise." Clear the build year: "Missing data isn't a no. Yellow, 'we can't tell yet', and the one thing that settles it."
+1. **🏠 Homeowner (≈70 s).** Enter the persona with four taps plus the bill numbers, well under three minutes. "The homeowner gets one sentence, a probability and what's still open, not a false promise." Press the next-step button: "Getting a quote today means hours of forms. Here the request is already filled in; they add a name, a phone number and a postcode." (Quote a number of hours only if you measured it.) Clear the build year: "Missing data isn't a no. Yellow, 'we can't tell yet', and the one thing that settles it."
 2. **📊 Evaluation (≈75 s).** "Your three dev houses: our heating load vs yours, all three verdicts reproduced with a single calibrated number. And your two evaluation houses:"
    B-04: "Single-pipe system, and with today's radiators it needs above 60 °C, even if they are all large. That's an obstacle, not missing data: red, here is what gets it to yellow and what the technician checks on the loop."
    B-05: "Your data contradicts itself: 125 m² but 14 rooms, and a bill 76 % above what size and age say. We trust size and age, widen the range and ask whether all heated area is included."

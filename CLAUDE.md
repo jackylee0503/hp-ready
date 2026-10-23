@@ -49,8 +49,8 @@ Show the four key terms with tooltips, using the organiser's wording (`docs/chal
   - Evaluation tab: 3 dev buildings vs reference (error %), leave-one-out, the 2 evaluation buildings (B-04, B-05) with ranges, plus `lead_score` and visit-type columns.
   - Every result has a **Rechenweg** expander: area × W/m² × k → heating load (consumption-based load shown beside it) → ΣΦ_n → required flow temperature → JAZ → cost, each step with its number and assumption, plus contradictions and which source we trusted.
   - Cut order inside P0-a if late (from the end): Rechenweg detail → leave-one-out table → secondary contradiction rules. Never cut LLM notes or Monte Carlo.
-- **P0-b 🏠 Homeowner answer card (dropdowns only)**: the organiser's core user. Inputs → traffic light with probabilities, one-sentence reason ("obstacle" or "can't tell yet" spelled out), **"What's still open"** list (`open_checks`, step 6c), cost, flow-temperature scale (p10-p90 band), one "this would make it more accurate" hint. The same card is shown for each of the 5 loaded buildings. Time it: inputs to answer in under 3 minutes.
-- **P0-c 🔧 Installer visit prep sheet**: built only from engine output (step 9). Building selector = the 5 loaded buildings + the current Homeowner house. If time runs out, cut P0-c before P0-b.
+- **P0-b 🏠 Homeowner answer card (dropdowns only)**: the organiser's core user, who is lazy: ask as little as possible ("Homeowner inputs" below). Inputs → traffic light with probabilities, one-sentence reason ("obstacle" or "can't tell yet" spelled out), **"What's still open"** list (`open_checks`, step 6c), cost, flow-temperature scale (p10-p90 band), one "this would make it more accurate" hint, and the **next-step box** (`next_step`, step 10). The same card is shown for each of the 5 loaded buildings. Time it: inputs to answer in under 3 minutes.
+- **P0-c 🔧 Installer visit prep sheet + 📨 quote request**: both built only from engine output (steps 9 and 10), the same data seen from two sides. The quote request is pre-filled; the homeowner adds only name, e-mail or phone and postcode. Building selector = the 5 loaded buildings + the current Homeowner house. If time runs out, cut P0-c before P0-b; inside P0-c keep the quote request, cut installer polish first.
 - **P1**: bill extraction (official bonus: consumption, energy carrier, costs) and radiator photo extraction (per-mission schemas, merge, Demo-mode cache) → entropy-based next question.
 - **P2**: outdoor-unit spot from an exterior photo (official bonus "installation-risk detection"), CSV upload batch triage (rules only, 0 LLM calls), photo retake loop, Installer polish, degree-day method, log-mean numeric solve, optional photos.
 - **Cut**: per-postcode design temperature lookup, fine-grained radiator lookup (3 sizes only).
@@ -64,8 +64,8 @@ First thing on the day: get the submission deadline and pitch slot. Build time =
 | 0:00-0:30 | Data is already in `data/`: check the organiser files did not change on the day, build or refresh `notes_cache.json` |
 | 0:30-3:00 | P0-a, **secure the B-04 / B-05 results here** |
 | 3:00-4:00 | P0-b Homeowner answer card (buffer if P0-a ran late) |
-| 4:00-5:00 | P0-c Installer prep sheet |
-| 5:00-7:30 | P1 (cut from the end) |
+| 4:00-5:15 | P0-c Installer prep sheet + quote request |
+| 5:15-7:30 | P1 (cut from the end) |
 | 7:30-8:30 | Local run check (+ Cloud link if used), freeze caches, rehearse the happy path 3× and time the homeowner flow (< 3 min) |
 | 8:30 | **Code freeze** |
 | 8:30-10:00 | Pitch prep and rehearsal |
@@ -118,6 +118,7 @@ def parse_notes(text: str, use_llm: bool = True) -> NotesObs               # cac
 def evaluate(h: House, p: Params = DEFAULT, n: int = 500, seed: int = 0) -> Result   # point estimate + Monte Carlo, deterministic
 def next_question(h: House) -> str | None                                           # P0: fixed order; P1: entropy / effort
 def installer_brief(h: House, r: Result) -> Result                                  # fills visit_type, parts, installer_checklist
+def quote_request(h: House, r: Result) -> dict                                      # pre-filled request (step 10); the app adds contact fields
 
 # calibrate.py
 def fit(buildings) -> Params
@@ -168,6 +169,22 @@ Gas heat ≈ 0.11/η ≈ 12.5 ct/kWh at η 0.88 (oil ≈ 19.3 ct); worst HP case
 
 Other `House` fields (dropdowns/photos): `building_type`, `monthly_advance_eur`, `boiler_condensing`, `radiator_size` (small/medium/large), `windows`, `roof_insulated`, `walls_insulated`, site flags `listed_building`, `outdoor_unit_space`, `flat_level_gas_heating`, bill raw values (`kwh_printed`, `m3`, `zustandszahl`, `brennwert`, `liters`, `period_start`, `period_end`, `bill_carrier` as printed, `bill_total_eur` for display only).
 
+## Homeowner inputs (P0-b)
+
+The homeowner is lazy: every question is one tap, nothing technical, every optional question says what it improves. Year bands match the W/m² table.
+
+| # | Question | Answers | Needed for | If skipped |
+| --- | --- | --- | --- | --- |
+| 1 | When was the house built? | before 1979 · 1979-94 · 1995-2001 · 2002-15 · 2016+ | verdict | `unclear` → yellow "can't tell yet" |
+| 2 | Living area? | number in m², no default | verdict | `unclear` → yellow "can't tell yet" |
+| 3 | What heats your rooms? | radiators · underfloor · both | verdict | `unclear` → yellow "can't tell yet" |
+| 4 | Insulated or renovated since then? | no · partly · fully · don't know | verdict | "don't know" = unrenovated column (as in the data) + open check "if it was insulated, the answer gets better" |
+| 5 | What do you heat with, and how much a year? (optional) | gas · oil · LPG · district · electric, plus kWh or litres, or the monthly payment in €, or the bill (P1 upload) | cost, bill cross-check | no cost, no cross-check; verdict unchanged |
+| 6 | How many people live there? Does the heating also make your hot water? (optional, shown with 5) | 1-6+ · yes/no | hot-water share of the bill | no hot-water subtraction, bill load labelled "upper bound" |
+| 7 | How many radiators, how big? (optional) | count; small / medium / large with pictures, or don't know (P1: one photo) | sharper flow temperature | count from rooms × 1.3 or area / 18, size drawn in the Monte Carlo |
+
+Never asked: pipe system, flow temperature, U-values, boiler type (homeowners rarely know; they become open checks or P1 photos). Questions 1-4 take about 30 seconds; with all optional ones it stays under 3 minutes.
+
 ## Result
 
 - `best_color` (green/yellow/red, always set, rule in step 6), `traffic_light` (adds `unclear`), `verdict_basis` (`likely_suitable` / `checks_remain` / `cannot_tell_yet` / `obstacle`, the organiser's colour meanings), `boundary` (max colour probability < 0.6), `reason` (one sentence for the homeowner), `reason_category` (temperature/insulation_first/pipe_system).
@@ -175,6 +192,7 @@ Other `House` fields (dropdowns/photos): `building_type`, `monthly_advance_eur`,
 - `p_green`, `p_yellow`, `p_red`; `required_flow_temp_c` and `heat_load_kw` as p10/p50/p90; `heat_load_bill_kw` (bill method, low/mid/high over 1,800 / 2,000 / 2,100 full-load hours); `specific_load_w_m2`; `jaz_bucket`; `cost_now_eur`, `cost_hp_eur`, `saving_eur`.
 - `contradictions`: list of {what, sources, trusted, why}; `site_flags`.
 - `confidence`, `lead_score`, `visit_type` (remote_quote/visit_with_parts/hold), `parts` {radiators_to_swap: (lo, mid, hi), valves, balancing: needed/check/None}, `installer_checklist`, `next_photo`.
+- `next_step`: {kind: quote/site_check/answer_question/path_to_yellow, label, detail} for the homeowner's next-step box (step 10).
 
 ## Engine (`engine.py`)
 
@@ -282,6 +300,19 @@ Visit type, first match wins:
 Parts (physics only): radiators to swap ≈ `ceil(ΣΦ_n shortfall at 55 °C / (2.2 − current size))`, unknown size = medium; shortfall ≤ 0 → 0; already large and short → "swapping is not enough, add radiators or check per room"; underfloor → n/a (attached radiators "check"). Range from Monte Carlo. Valves to replace from data. Hydraulic balancing: True → "check", otherwise "needed".
 Checklist: one line per contradiction ("check X on site"), site flags, pipe system if unknown, single-pipe loop checks (step 3b), then always the organiser's technician list (`03_technical_guardrails.md`): exact heating load (DIN EN 12831) and room-by-room radiator sizing, electrical capacity and meter cabinet, hydraulics and balancing, outdoor-unit position, sound distance and permits.
 
+**10. Next step and quote request** (the homeowner's "so what do I do now?"; getting a quote today means long forms).
+Next-step box under the answer card, one primary button:
+
+| Verdict | Primary button | Detail line |
+| --- | --- | --- |
+| green | "Get a quote" | "a remote quote is likely possible" when `visit_type` is remote_quote, else "an installer will want a short look first" |
+| yellow, `checks_remain` | "Request a short on-site check" | "they will look at: …" (top 2-3 `open_checks`) |
+| yellow, `cannot_tell_yet` | "Answer one more question" (`next_question`) | secondary button: "or request a check" |
+| red | "See what gets you to yellow" (step 6b) | secondary button: "talk to an installer anyway" |
+
+Every button opens the same quote request with a matching subject (quote / on-site check / advice). `quote_request(h, r)` pre-fills it from what we already have: the house facts with their source, our result (colour and probabilities, heating load and flow temperature ranges, contradictions), `open_checks`, visit type and parts (step 9), photos attached so far (P1). The homeowner adds only name, e-mail or phone, and postcode.
+Output: a mailto draft (subject + short body, no recipient: we do not invent nuuEnergy's address) and a JSON download (the data an installer CRM such as nuuOS could import; say "could", nothing is integrated). The app sends nothing and stores nothing: contact details live only in `st.session_state`.
+
 ## Photo inputs (P1)
 
 Missions: (1) bill in any form (photo, PDF, app screenshot) → `BillObs` raw numbers only (official bonus: consumption, energy carrier, costs); (2) largest living-room radiator, at an angle, with pipes → size, type, pipe system; (3) exterior → building type, age range, windows, outdoor-unit spot (official bonus, P2). Optional: underfloor manifold, boiler front.
@@ -292,14 +323,14 @@ Retake loop (P2): per-field `missing_reason`, max 2 retries, then fall back to d
 
 ## Screens (`app.py`)
 
-- 🏠 Homeowner (first tab): dropdowns → traffic light (two colours when uncertain) + reason, with "obstacle" or "can't tell yet" spelled out → **What's still open** (`open_checks`) → flow-temperature scale 35-70 °C with the p10-p90 band and marks at 45 °C (ideal), 55 °C (efficient), 60 °C (works, costs more) → cost → one improvement hint (plus the insulation hint above 75 W/m²). Where it fits, one myth-buster line: underfloor heating and a full renovation are not required. P1 adds `st.file_uploader` (bill PDF or screenshot, rear camera on phones) and `st.camera_input`.
+- 🏠 Homeowner (first tab): the 4 tap questions ("Homeowner inputs"), optional ones folded under "Make it more accurate" → traffic light (two colours when uncertain) + reason, with "obstacle" or "can't tell yet" spelled out → **What's still open** (`open_checks`) → flow-temperature scale 35-70 °C with the p10-p90 band and marks at 45 °C (ideal), 55 °C (efficient), 60 °C (works, costs more) → cost → one improvement hint (plus the insulation hint above 75 W/m²) → **next-step box** (step 10) → 📨 quote request panel: the pre-filled summary, 3 contact fields, "Open as e-mail" and "Download request". Where it fits, one myth-buster line: underfloor heating and a full renovation are not required. P1 adds `st.file_uploader` (bill PDF or screenshot, rear camera on phones) and `st.camera_input`.
 - 📊 Evaluation: 5 buildings; dev cases beside their references; **B-04 and B-05 with ranges and their answer card** (the deliverable); both heating-load methods side by side; contradictions; "facts the AI found in the notes + quotes"; `lead_score` and visit type. **The pitch shows the evaluation results here.**
 - 🔧 Installer: building selector → one prep sheet: visit-type badge, parts list, on-site checklist, load and flow temperature (p10-p90), missing fields.
 - Demo-mode toggle (P1): use `samples/cached_extract.json` instead of the LLM.
 
 ## Working rules
 
-- One Claude session, build order: schema → loader (+ notes cache) → engine → calibrate → Evaluation → Homeowner answer card → installer_brief + Installer → (P1) extract → photo UI. If a teammate joins, split with git worktrees, never two sessions in one folder.
+- One Claude session, build order: schema → loader (+ notes cache) → engine → calibrate → Evaluation → Homeowner answer card (with next-step box) → installer_brief + Installer → quote_request + request panel → (P1) extract → photo UI. If a teammate joins, split with git worktrees, never two sessions in one folder.
 - After each passing `/check`, commit only the files you changed (never `git add -A`). Never work 30 min without a commit; roll back to the last commit if broken.
 - `/hp-review` after P0-a, after P0-b and before the freeze. New information on the day goes through `/intake`.
 - Keep function signatures; add new functions if needed. Wrap every LLM and file call in try/except, fall back to cache, show it small on screen.
@@ -309,7 +340,7 @@ Retake loop (P2): per-field `missing_reason`, max 2 retries, then fall back to d
 
 ## Demo (P0 only, default)
 
-1. 🏠 Homeowner: the homeowner's question first. Persona (1972 terraced house, 140 m², partly renovated, 3 people, gas 18,000 kWh) by dropdowns, well under 3 minutes → colour with probabilities, reason, what's still open, scale, cost. Empty the build year → yellow "can't tell yet" + one hint (missing data is not red).
+1. 🏠 Homeowner: the homeowner's question first. Persona (1972 terraced house, 140 m², partly renovated, 3 people, gas 18,000 kWh) by taps, well under 3 minutes → colour with probabilities, reason, what's still open, scale, cost → press the next-step button: the quote request is already filled in, only name, contact and postcode are left. Empty the build year → yellow "can't tell yet" + one hint (missing data is not red).
 2. 📊 Evaluation: dev accuracy and leave-one-out → **B-04 and B-05 results** → B-05 contradiction (125 m² but 14 rooms and a bill +76 % above the area-age load; we trust area-age, widen the range and ask "is all heated area included?") → B-01 contradiction (bill ~2.4 kW vs area and age ~11 kW, −78 %; trusting area-age; installer to check habits/LPG) → AI-found facts with quotes (B-02 "A wood stove is used all winter").
 3. 🔧 Installer: B-04 → single-pipe, red with a path to yellow and the loop checks; or B-03 → visit with parts: about N radiators, 12 valves, balancing, check the unused top floor.
 4. Rechenweg once; same input twice → same result.
@@ -319,6 +350,7 @@ P1 replaces the dropdown part of step 1 with bill screenshot → kWh → radiato
 
 - "'Would a heat pump even work in my home?' Today only a technician's visit answers that. We answer it in under three minutes, and we say what we can't tell."
 - "Missing data isn't a no. We say 'can't tell yet' and name the one thing that would settle it."
+- "Getting one quote today means hours of forms. Here it takes three minutes, and the request is already filled in." (Use a number only if you measured it yourself.)
 - "In Germany, the scarcest resource isn't energy. It's the installer's time."
 - "The LLM reads. Physics decides. Nothing is made up."
 - "Real data contradicts itself. We show which source we trusted and why."
@@ -331,6 +363,7 @@ P1 replaces the dropdown part of step 1 with bill screenshot → kWh → radiato
 - Let the LLM output verdicts, colours or numbers.
 - Output prices, installation cost or subsidies beyond the fixed assumptions.
 - Generate fake buildings or visits.
+- Send quote requests or store names and contacts (mailto draft and download only), or invent a recipient address.
 - Add features in the last hour (code freeze).
 
 ## On-site information protocol (whenever the user pastes something new)
