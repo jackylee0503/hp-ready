@@ -316,6 +316,6 @@ Playbook: data file → print all columns, mapping table, adapt `schema.py`; ref
 - [ ] Submission deadline and pitch slot
 - [ ] **How did nuuEnergy compute the reference heating load?** (rule-of-thumb area/age, U-value DIN 12831, consumption) → first question to the mentor; refit k and the table accordingly
 - [ ] JSON format of the hidden data
-- [ ] Team size and roles
+- [ ] Team roles (team so far: Junwoo `jackylee0503` + `cybeuu`, write access since 2026-10-23; split work with git worktrees, never two sessions in one folder)
 - [ ] Is pre-written code allowed
 - [x] Data terms (anonymised, private repo OK; reconfirm), reference format, CSV fields, location granularity, photos in eval data (none)
