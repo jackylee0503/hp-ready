@@ -1,0 +1,118 @@
+# HP-Ready Triage: Design Document
+
+WATT THE HACK Munich, 2026-10-24. Challenge #4 by nuuEnergy: *"Can AI tell whether a home is ready for clean heating?"*
+Status: pre-event design, reviewed (engineering review, CEO review, two spec reviews, one outside review). Build spec for the coding agent: `CLAUDE.md`.
+
+## 1. Problem
+
+nuuEnergy is a Munich heat-pump installer with its own craftspeople (hubs in Munich, Hamburg, Cologne). Every lead today needs a site visit before anyone can say whether a heat pump works in that house. Installer time is the bottleneck, and many visits end with "not like this" or "come back with different parts".
+
+**Goal:** before an installer drives out, answer three questions from what the homeowner already knows:
+1. Is the house heat-pump ready? (green / yellow / red)
+2. How sure are we, and what in the data contradicts itself?
+3. If someone goes, what should they bring and check?
+
+**Non-goals:** replacing the installer's room-by-room heat-load calculation (DIN EN 12831), quoting prices or subsidies, deciding with an LLM.
+
+## 2. Users
+
+| User | Needs | Screen |
+| --- | --- | --- |
+| nuuEnergy sales / dispatch | Which leads to visit first, which can get a remote quote | 📊 Evaluation (lead score, visit type) |
+| Installer | What to bring, what to check on site | 🔧 Installer prep sheet |
+| Homeowner | "Does it work for my house, and why?" in one sentence | 🏠 Homeowner |
+| Judges | Accuracy on the hidden buildings, honest uncertainty | 📊 Evaluation |
+
+## 3. Approach
+
+**The LLM reads, physics decides.**
+
+```
+ CSV/JSON row ──► loader ──► House ──────────────► engine ──► Result ──► app (3 tabs)
+   │                ▲  (regex: counts, U-values)     │
+   │ free-text      │                                 ├─ heating load = k × W/m²(age, renovation) × area
+   └─ notes ──► LLM NotesObs (facts + quotes)         ├─ contradiction checks (2b)
+                (cached, keyword fallback)            ├─ radiator output → required flow temperature
+                                                      ├─ Monte Carlo (N=500, seed 0) → probabilities, p10-p90
+                                                      ├─ JAZ band → cost
+                                                      └─ installer brief → visit type, parts, checklist
+ P1: bill / radiator photo ──► extract (per-mission schema) ──► merge into House
+```
+
+Why this split: the judges score against real reference values, and the organiser warns that cases contradict themselves. A model that "decides" cannot explain itself or show calibrated uncertainty; a physics chain can show every step (the Rechenweg) and every assumption.
+
+## 4. Data findings (dev set, 3 buildings)
+
+| ID | Built | Area | Consumption | Notes | Reference load | Verdict |
+| --- | --- | --- | --- | --- | --- | --- |
+| B-01 | 2001 | 195 m² | 10,000 kWh LPG | 14 radiators, preset valves; good U-values, "no renovation documented" | 9.6 kW | green |
+| B-02 | 2005 | 180 m² | 15,500 kWh gas | underfloor + 1 radiator, wood stove all winter, solar thermal DHW | 9.7 kW | green |
+| B-03 | 1970 | 200 m² | 40,000 kWh oil | 15 radiators, 12 valves to replace, cavity + roof insulation, top floor not lived in | 14.5 kW | yellow |
+
+What we learned:
+- **Consumption-based load fails.** Matching the references needs 625 / 1,157 / 2,400 full-load hours: a 4× spread caused by the wood stove, habits and LPG. One parameter cannot fit it.
+- **Reference loads move with age and area** (49 / 54 / 72 W/m²), so the primary method is `k × W/m²(age, renovation) × area` using German trade rules of thumb (BDH/VdZ, Viessmann).
+- **Planted contradictions are visible:** B-01 bill vs area load (−74 %) and "no renovation" vs better-than-code U-values; B-02 wood stove; B-03 unused top floor.
+- **Two of three houses sit on the 55 / 60 °C edges.** Calibration choices flip colours, so we report probabilities and never add parameters to hit 3/3.
+
+Calibration result (one parameter): **k = 1.01**, leave-one-out error +20 % / −9 % / −8 %. Colours: B-01 54.0 °C green, B-02 underfloor green, B-03 58.2 °C yellow (3/3). Monte Carlo p50: B-01 54.6 °C, B-03 58.8 °C.
+
+## 5. Key models and assumptions
+
+- **Heating load:** table of W/m² by age band (≤1977 130/80, 1978-94 85/70, 1995-2001 60/55, 2002-15 50/50, ≥2016 35/35 for unrenovated/renovated), ±20 %. The "renovated" column is used when notes name insulation work or the wall U-value is below 0.7 × the age reference.
+- **Radiators:** EN 442 output law `Φ = Φ_n (ΔT/50)^1.3`; ratings from manufacturer tables (Type 22 600×1000 ≈ 1.67 kW, Type 33 600×1200 ≈ 2.68 kW). Sizes small/medium/large = 0.7 / 1.5 / 2.2 kW; unknown size drawn 0.25/0.5/0.25.
+- **Required flow temperature:** supply temperature that holds 20 °C at the design outdoor temperature with the existing radiators. Bands 55/60 °C come from the challenge JAZ table.
+- **Fixed challenge assumptions:** electricity 0.26 €/kWh, gas 0.11 €/kWh, oil 1.70 €/L, JAZ 4.0 / 3.5 / 2.8.
+- **Efficiency basis:** gas bills are upper heating value (Hs), so η 0.88 / 0.80; oil at 10 kWh/L is lower value (Hi), η 0.95 / 0.85.
+- **Verdict:** colour of the Monte Carlo p50; if no colour reaches 60 % probability, show the top two colours.
+
+## 6. Scope and priorities
+
+| Priority | Content |
+| --- | --- |
+| P0-a | Loader + LLM notes (cached) + engine + Monte Carlo + calibration + Evaluation tab |
+| P0-b | Installer visit prep sheet |
+| P0-c | Homeowner tab (dropdowns) |
+| P1 | Bill/radiator photo extraction, entropy-based next question |
+| P2 | CSV batch upload, photo retake loop, degree-day method, polish |
+
+## 7. Risks
+
+| Risk | Mitigation |
+| --- | --- |
+| Hidden buildings word notes differently | LLM notes extraction is the main path, keywords only as fallback |
+| Reference load computed differently than we assume | Ask the mentor first; k is refit in minutes |
+| Houses on colour edges | Probabilities and "uncertain: 🟢/🟡" instead of false certainty |
+| API down / no key | Notes cache committed early; keyword fallback; P0 runs offline |
+| Wi-Fi or Cloud fails during the pitch | Local run + screen recording; wake the Cloud app 10 min before |
+| Pre-written code not allowed | Treat this repo as research notes, rebuild P0-a/b on the day, cut P0-c and P1 |
+| Cloud app from a private repo asks judges to log in | Test the URL in an incognito window, set Sharing to public |
+
+## 8. Decision log
+
+| When | Decision | Why |
+| --- | --- | --- |
+| Before | kNN on a synthetic visit DB → physics engine | Judged against real references; synthetic data is indefensible |
+| Eng review | Radiator rating table, Hs-based η, site flags never force red, drop the "25 % shortfall" rule, calibrate one parameter, clip display at 70 °C | Verdict hinged on undefined constants; overfitting with 3 points |
+| Eng review | Bills: LLM extracts raw numbers only, engine converts; per-mission schemas; source-priority merge; cache extraction; resize photos | LLM must not calculate; Streamlit reruns; phone photo limits |
+| Eng review | One Claude session; commit named files only; `/review` → `/hp-review`; deadline-first timeline; deploy the night before | Avoid two agents corrupting each other; first-time participant |
+| Dev data | Primary load = area × age × k (was consumption ÷ 2000 h); contradiction checks; CSV mapping; fuels lpg/district/electric | Consumption needed 625-2,400 h; organiser says cases are contradictory |
+| CEO D2/D3 | Add installer visit prep; add batch lead triage | nuuEnergy runs its own installers; scalability on screen |
+| CEO D4/D5 | Photo retake loop → P2; photo extraction → P1 | Evaluation data has no photos; P0 overloaded |
+| CEO D7 | Unused area → heated area × 0.85 | Documented fact in B-03 notes |
+| CEO D8 | Wall U-value below 0.7 × age reference → renovated column (k 1.01, dev 3/3) | B-01's U-values beat 2001 code; planted contradiction |
+| CEO D9 | LLM notes extraction is P0 core (cached) | Hidden cases may use other words; AI must be visible |
+| CEO D10 | Simple Monte Carlo in P0; verdict = p50 colour; <0.6 max probability → uncertain | Uncertainty is 20 points; mode is biased by the radiator-size tail |
+| CEO D11 | Batch CSV upload → P2; Evaluation table gets lead score and visit type | Only 5 real rows exist |
+
+## 9. Domain primer
+
+- **Heat pump:** moves heat from outside air; 1 kWh electricity → 3-4 kWh heat. The yearly average ratio is the **JAZ**.
+- **Why flow temperature (Vorlauftemperatur) is everything:** a heat pump is more efficient the cooler the water it has to make. "Does it work?" = "does lukewarm water keep the house warm?"
+- **55 / 60 °C:** band edges of the challenge JAZ table (≤55 → 3.5, 55-60 → 2.8, above 60 not covered).
+- **Heating load (Heizlast):** heat the house loses on the coldest design day, in kW. We estimate it from area and age, and cross-check with the bill.
+- **Radiator output:** radiators give less heat with cooler water; at 55/45 °C about half of the 75 °C rating. Old houses often have oversized radiators, so more pass than people expect.
+- **Single vs two-pipe (Ein-/Zweirohr):** in single-pipe systems later radiators get cooler water, so the flow temperature must be higher.
+- **Monte Carlo:** instead of guessing one value for an unknown, draw 500 plausible values and run the engine 500 times; the spread gives ranges and colour probabilities.
+- **Calibration:** 3 dev buildings train, 2 hidden test. Fitting many numbers to 3 points overfits.
+- **Typical installer visit:** check heating and consumption → room-by-room load vs radiator output → pipes and hydraulic balancing → outdoor-unit spot and noise distance → space for tanks → electrical supply → quote, subsidy, install, commissioning. We prefill the first three at whole-house level; the rest goes on the installer checklist.

@@ -1,16 +1,16 @@
 ---
-description: 작업을 안 본 별도 에이전트에게 물리·원칙 위반 검수를 맡김
+description: Hand a physics/principles review to a separate agent that has not seen the work
 ---
 
-서브에이전트(general-purpose)를 하나 띄워서 아래를 시켜. 메인 세션의 맥락은 넘기지 말고 파일만 보게 해.
+Spawn one general-purpose subagent with the brief below. Do not pass the main session's context; it should look only at the files.
 
-"CLAUDE.md를 기준으로 schema.py, engine.py, extract.py, app.py를 검수해.
-- 핵심 원칙 1~7 위반: LLM이 판정·숫자를 내는 곳, 고정 가정 외 숫자, 근거 없는 빨강
-- 물리: 단위(kWh vs kW, °C vs K), 라디에이터 출력식 지수 방향, 온수 차감, 비용식이 고정 가정과 일치하는지
-- 인터페이스 계약: 시그니처가 CLAUDE.md와 다른 곳
-- 데모 위험: try/except 없는 API·파일 호출, 캐시 폴백 없는 경로
-발견 사항을 심각도(데모 깨짐 / 점수 깎임 / 사소함) 순으로, 파일:줄과 한 줄 수정안으로만 보고. 직접 고치지 마."
+"Review schema.py, loader.py, engine.py, calibrate.py, extract.py and app.py against CLAUDE.md.
+- Principles 1-7: places where the LLM produces verdicts or numbers, numbers outside the fixed assumptions, red without a reason and a path to yellow
+- Physics: units (kWh vs kW, °C vs K), direction of the radiator exponent, DHW subtraction, Hs/Hi efficiency basis, cost formula matches the fixed assumptions, best_color = colour of the Monte Carlo p50
+- Interface contract: signatures that differ from CLAUDE.md
+- Demo risk: API or file calls without try/except, paths with no cache fallback, Streamlit reruns that call the API again
+Report findings by severity (breaks demo / loses points / minor), each as file:line plus a one-line fix. Do not edit anything."
 
-결과를 받으면 '데모 깨짐'만 바로 고칠지 나한테 물어봐.
+When the result comes back, ask the user (in Korean) whether to fix the "breaks demo" items right away.
 
 $ARGUMENTS

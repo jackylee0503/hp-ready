@@ -1,14 +1,14 @@
 ---
-description: 스모크 체크 — 지금 상태가 데모 가능한지 확인하고, 통과하면 커밋
+description: Smoke check — is the current state demo-ready? Commit if it passes
 ---
 
-순서대로 실행하고 결과만 짧게 보고해. 고치지는 말고, 실패하면 원인 한 줄 + 수정안만.
+Run these in order and report results briefly (to the user in Korean). Do not fix anything; on failure give one line of cause + a proposed fix.
 
-1. `python engine.py` — 예시 집 결과와 Rechenweg가 나오는지, 숫자가 CLAUDE.md 도메인 배경의 감과 크게 어긋나지 않는지 (공급온도 35~75°C, 난방부하 3~30 kW 범위 밖이면 의심)
-2. `python -c "from loader import load_buildings; print(len(load_buildings()))"` — data/가 있으면 5채 로드되는지
-3. `python calibrate.py` 가 있으면 실행 — 3채 오차와 leave-one-out 표
-4. `streamlit run app.py --server.headless true --server.port 8599` 를 백그라운드로 띄워 10초 내 에러 없이 뜨는지(`/_stcore/health` = ok) 확인 후 **그 PID로 종료** (프로세스 남기지 말 것)
-5. 결정론: 같은 입력으로 evaluate 두 번 → 결과 동일한지
-6. CLAUDE.md 우선순위 기준으로 지금 어디까지 됐는지 체크리스트 (P0-a / P0-b / P1)
+1. `python engine.py` — dev cases and the example house print with a Rechenweg. Sanity: flow temperature 35-75 °C, heating load 3-30 kW, B-01 green and B-03 yellow (or "uncertain" including that colour).
+2. `python -c "from loader import load_buildings; print(len(load_buildings()))"` — all buildings in `data/` load.
+3. `python calibrate.py` if it exists — print k, the 3 dev errors and the leave-one-out table.
+4. Start `streamlit run app.py --server.headless true --server.port 8599` in the background, confirm `/_stcore/health` returns ok within 10 s, then **kill that PID** (leave no process behind).
+5. Determinism: `evaluate` on the same house twice → identical result.
+6. Checklist of where we are against the priorities in CLAUDE.md (P0-a / P0-b / P0-c / P1).
 
-전부 통과하면 `git status`로 변경 파일을 보고, **이번 작업에서 바꾼 파일만 이름으로** `git add <파일들> && git commit -m "check: <한 줄 요약>"`. `git add -A` 금지 (`samples/` 원본 사진·`.streamlit/secrets.toml` 섞임 방지).
+If everything passes: look at `git status`, then `git add <only the files changed in this piece of work>` and `git commit -m "check: <one-line summary>"`. Never `git add -A` (keeps raw `samples/` photos and `.streamlit/secrets.toml` out).

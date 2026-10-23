@@ -1,15 +1,15 @@
 ---
-description: 현장에서 받은 정보(텍스트·스크린샷·파일·멘토 발언)를 CLAUDE.md 프로토콜대로 반영
+description: Apply information received on site (text, screenshot, file, mentor remark) using the CLAUDE.md protocol
 ---
 
-아래 입력을 CLAUDE.md의 "현장 정보 반영 프로토콜"에 따라 처리해.
+Process the input below with the "On-site information protocol" in CLAUDE.md. Reply to the user in Korean.
 
-1. 분류 → 2. 쉬운 말 3줄 요약 → 3. CLAUDE.md 충돌 섹션 나열 → 4. 바꿀 줄만 최소 수정안 → 5. P0/P1/P2·타임라인 영향
-6. 내가 "ㅇㅋ" 하면 CLAUDE.md 수정 + 결정 로그 한 줄(현재 시각) + 열린 질문 체크
-7. 낯선 용어는 "도메인 배경"을 근거로 한 줄 설명
+1. Classify → 2. three-line plain summary → 3. list the CLAUDE.md sections it conflicts with → 4. minimal edit proposal (changed lines only) → 5. impact on P0/P1/P2 and the timeline
+6. When the user says "ㅇㅋ": edit CLAUDE.md, add one line (with current time) to the decision log in docs/DESIGN.md, tick the open questions
+7. Explain unfamiliar terms in one line using the Domain primer in docs/DESIGN.md
 
-데이터 파일이면 상황별 플레이북의 "데이터 파일" 절차를 따르고, 컬럼 매핑표부터 보여줘.
-코드는 내가 승인하기 전에 고치지 마.
+For a data file, follow the "data file" playbook and show the column mapping table first.
+Do not change code before the user approves.
 
-입력:
+Input:
 $ARGUMENTS
