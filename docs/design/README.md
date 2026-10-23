@@ -12,6 +12,7 @@ The `.dc.html` files need the canvas runtime to render, so read them rather than
 | `Step4.dc.html` | Phone 4/4: is this right? |
 | `Answer.dc.html` | Phone: the answer, rows open on tap |
 | `Request.dc.html` | Phone: pre-filled quote request |
+| `Handover.dc.html` | The one-page A4 pre-visit sheet (PDF for the installer) |
 | `NextStep.dc.html` | The next-step button for each verdict |
 | `WebHome.dc.html` | Desktop: wizard with "What we know so far" |
 | `WebAnswer.dc.html` | Desktop: answer with the quote request beside it |

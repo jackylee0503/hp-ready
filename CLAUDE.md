@@ -50,7 +50,7 @@ Show the four key terms with tooltips, using the organiser's wording (`docs/chal
   - Every result has a **Rechenweg** expander: area × W/m² × k → heating load (consumption-based load shown beside it) → ΣΦ_n → required flow temperature → JAZ → cost, each step with its number and assumption, plus contradictions and which source we trusted.
   - Cut order inside P0-a if late (from the end): Rechenweg detail → leave-one-out table → secondary contradiction rules. Never cut LLM notes or Monte Carlo.
 - **P0-b 🏠 Homeowner wizard + answer card**: the organiser's core user, who is lazy and should not fill a form: a 4-step wizard where the LLM reads a typed description, photos and the bill ("Homeowner inputs" below). Build order inside P0-b: text step → bill → radiator photo → exterior photo → listing; if late, cut from the end, never the text step or the bill. Inputs → traffic light with probabilities, one-sentence reason ("obstacle" or "can't tell yet" spelled out), **"What's still open"** list (`open_checks`, step 6c), cost, flow-temperature scale (p10-p90 band), one "this would make it more accurate" hint, and the **next-step box** (`next_step`, step 10). The same card is shown for each of the 5 loaded buildings. Time it: inputs to answer in under 3 minutes.
-- **P0-c 🔧 Installer visit prep sheet + 📨 quote request**: both built only from engine output (steps 9 and 10), the same data seen from two sides. The quote request is pre-filled; the homeowner adds only name, e-mail or phone and postcode. Building selector = the 5 loaded buildings + the current Homeowner house. If time runs out, cut P0-c before P0-b; inside P0-c keep the quote request, cut installer polish first.
+- **P0-c 📄 Pre-visit PDF (quote request and installer prep sheet in one page)**: built only from engine output (steps 9 and 10). The homeowner adds only name, e-mail or phone and postcode and gets a one-page PDF to send to any installer; the 🔧 Installer tab shows the same page. Building selector = the 5 loaded buildings + the current Homeowner house. If time runs out, cut P0-c before P0-b; inside P0-c keep the PDF, cut installer-tab polish first.
 - **P1**: entropy-based next question, retake loop beyond one retake, boiler nameplate photo (kW, year, condensing).
 - **P2**: CSV upload batch triage (rules only, 0 LLM calls), Installer polish, degree-day method, log-mean numeric solve, energy-certificate photo.
 - Both official bonuses now sit in P0-b: bill reading (step 3) and the outdoor-unit spot from the exterior photo (step 1).
@@ -120,6 +120,7 @@ def evaluate(h: House, p: Params = DEFAULT, n: int = 500, seed: int = 0) -> Resu
 def next_question(h: House) -> str | None                                           # P0: fixed order; P1: entropy / effort
 def installer_brief(h: House, r: Result) -> Result                                  # fills visit_type, parts, installer_checklist
 def quote_request(h: House, r: Result) -> dict                                      # pre-filled request (step 10); the app adds contact fields
+def handover_pdf(h: House, r: Result, contact: dict) -> bytes                       # the one-page A4 pre-visit sheet (step 10), reportlab
 
 # calibrate.py
 def fit(buildings) -> Params
@@ -314,7 +315,13 @@ Next-step box under the answer card, one primary button:
 | red | "See what gets you to yellow" (step 6b) | secondary button: "talk to an installer anyway" |
 
 Every button opens the same quote request with a matching subject (quote / on-site check / advice). `quote_request(h, r)` pre-fills it from what we already have: the house facts with their source, our result (colour and probabilities, heating load and flow temperature ranges, contradictions), `open_checks`, visit type and parts (step 9), photos attached so far (P1). The homeowner adds only name, e-mail or phone, and postcode.
-Output: a mailto draft (subject + short body, no recipient: we do not invent nuuEnergy's address) and a JSON download (the data an installer CRM such as nuuOS could import; say "could", nothing is integrated). The app sends nothing and stores nothing: contact details live only in `st.session_state`.
+**Output: one A4 page, the "Pre-visit sheet" PDF** (`handover_pdf`, reportlab; add `reportlab` to `requirements.txt`, it is pure Python; the demo bill in `assets/demo/` was made with it). Layout as in `docs/design/Handover.dc.html`:
+1. Header "Pre-visit sheet", request type, date; contact line (name · phone or e-mail · postcode) and a one-line house summary.
+2. **For the installer** box on top: the visit type in words (remote quote possible / short visit with parts / hold: not without changes), colour with probabilities, required flow temperature with range, one instruction ("check the radiator sizes first"). This lets an installer decide in a minute whether the trip is worth it.
+3. Two columns. Left: **✓ Confirmed** (item · value · source: owner / bill / photo / data) and **~ Estimated** (item · value with range · how: area × age, bill ÷ 2,000 h, radiator model, owner's words, photo, fixed prices). Right: **? Check on site** (`open_checks` plus the organiser's always-checks), **Bring** (parts from step 9), the radiator photo with a caption. A field is "confirmed" only when stated by the owner, read from a bill or listing, or in the data; everything the engine or a photo inferred is "estimated".
+4. Footer: first estimate, not a DIN EN 12831 calculation; fixed challenge prices; no installation cost or subsidies; nothing stored; "Page 1 of 1". The bill photo itself is not included, only its numbers.
+Ink-friendly: black text, ≥ 12 px (9 pt), badges carry words ("✓ Confirmed", "~ Estimated", "? Check on site") so it reads in grayscale. Built-in Helvetica covers €, °, ², umlauts and "–"; use "~" instead of "≈" unless a TTF font is registered.
+Also "Open as e-mail": a mailto draft (subject + short body asking to attach the PDF, no recipient: we do not invent nuuEnergy's address). The JSON of the same data stays an optional extra for CRMs such as nuuOS (say "could", nothing is integrated). The app sends nothing and stores nothing: contact details live only in `st.session_state` and on the PDF the homeowner downloads.
 
 ## Extraction missions (P0-b)
 
@@ -344,14 +351,14 @@ Source of truth: the design canvas "HP-Ready homeowner flow" and its files in `d
 - **3/4** "Bill or listing?" · "Optional. Photo, PDF or screenshot." · preview · chips (e.g. Gas · 2025, 18,002 kWh, green "Matches your text") · "Only the numbers are kept." · "Next" / "Skip".
 - **4/4** "Is this right?" · "Tap to fix." · one row per field: label, value, source pill (text / photo / bill / listing) · "✓ No questions for you", or at most 2 questions · "When do we ask? ›" · "Show my answer".
 - **Answer**: traffic light + headline + status word, one sentence (what it needs + the one thing that would settle it) · rows "How sure › 58 % green", "Water temperature › ≈ 54 °C" (scale 35-70 °C, band p10-p90, marks 45 ideal / 55 efficient / 60 pricier), "Running cost › save ~€800/yr", "What's still open › 4 things", "How we got this ›" (the Rechenweg: both load methods, W/m² hint, myth line) · next-step button (step 10) + one short line.
-- **Quote request**: "Your request is ready" · "Just add how to reach you." · "What we'll send ›" (house, result, checks, photos) · Name, E-mail or phone, Postcode · "Open as e-mail" · "Download instead" · "Nothing is sent or stored by this app."
+- **Quote request**: "Your request is ready" · "Just add how to reach you." · "What's on the PDF ›" (confirmed · estimated · to check) · Name, E-mail or phone, Postcode · primary "PDF for the installer" (`st.download_button`) · "Open as e-mail" · "One page any installer reads in a minute. Nothing is stored."
 
 **Headline words by verdict:** green → "Green" / "Likely suitable" ("Green, just" when `boundary`); yellow `checks_remain` → "Yellow" / "Some checks remain"; yellow `cannot_tell_yet` → "Yellow" / "Can't tell yet"; red → "Red" / "Not without changes". The one sentence names the obstacle or the missing piece.
 
 **Web (desktop ≥ 1024 px): the same app, wider.** One Streamlit app serves phone and desktop; nothing is built twice. Top bar: "HP-Ready" and the tabs Homeowner · Evaluation · Installer (`st.tabs`, Homeowner first).
-- **Homeowner**: two columns (`st.columns([3, 2])`). Left: the current wizard step, photo and "We read" chips side by side, Back / Next / Skip as normal-width buttons. Right: "What we know so far", one row per field with its value and source pill, filling up step by step ("tap to fix"), and a one-line hint for the next step. On the answer: left the answer card with the same rows, right the quote request in a card outlined in ink ("Get a quote" · "What we'll send ›" · 3 fields · "Open as e-mail").
+- **Homeowner**: two columns (`st.columns([3, 2])`). Left: the current wizard step, photo and "We read" chips side by side, Back / Next / Skip as normal-width buttons. Right: "What we know so far", one row per field with its value and source pill, filling up step by step ("tap to fix"), and a one-line hint for the next step. On the answer: left the answer card with the same rows, right the quote request in a card outlined in ink ("Get a quote" · "What's on the PDF ›" · 3 fields · "PDF for the installer" · "Open as e-mail").
 - **Evaluation** (the pitch screen): 3 stat tiles (dev verdicts 3/3 · leave-one-out errors · 1 calibrated number), then one table: Building · Set · Verdict · How sure (mini green/yellow/red bar) · Water temp (p50 and p10-p90) · Heating load (ours · reference or bill) · Flags · Visit. Dev rows show "✓" when the verdict matches the reference. Selecting a row fills a details panel below: why (2-3 lines), contradictions with the source we trusted, what the AI read (quote → meaning).
-- **Installer**: lead list on the left (B-01…B-05 and the current homeowner house, with colour dots), prep sheet on the right: title, visit badge, one sentence, 3 chips (load, water temperature, radiators), then 3 cards "Path to yellow · Bring · Check on site".
+- **Installer**: lead list on the left (B-01…B-05 and the current homeowner house, with colour dots), on the right the same content as the pre-visit PDF: title, visit badge, one sentence, 3 chips (load, water temperature, radiators), then "Path to yellow · Bring · Check on site", and a "Download PDF" button.
 - At phone width Streamlit stacks the columns; the stack must look like the phone flow above.
 
 **Streamlit mapping.** Theme in `.streamlit/config.toml` (primaryColor `#14213D`, backgroundColor `#F3F5F7`, secondaryBackgroundColor `#FFFFFF`, textColor `#14213D`, font sans serif); wizard step in `st.session_state.step`, progress as 4 small bars; chips, traffic light and the temperature scale as small HTML snippets via `st.markdown(..., unsafe_allow_html=True)` with the tokens above; rows as `st.expander`; text box `st.text_area`; uploads `st.file_uploader` (+ `st.camera_input` on laptops); buttons `st.button` full width.
@@ -363,7 +370,7 @@ Source of truth: the design canvas "HP-Ready homeowner flow" and its files in `d
 
 ## Working rules
 
-- One Claude session, build order: schema → loader (+ notes cache) → engine → calibrate → Evaluation → Homeowner answer card (with next-step box) → wizard + extract (text → bill → radiator → exterior → listing) → quote_request + request panel → installer_brief + Installer → (P1). If a teammate joins, split with git worktrees, never two sessions in one folder.
+- One Claude session, build order: schema → loader (+ notes cache) → engine → calibrate → Evaluation → Homeowner answer card (with next-step box) → wizard + extract (text → bill → radiator → exterior → listing) → quote_request + handover_pdf + request panel → installer_brief + Installer tab (shows the same page) → (P1). If a teammate joins, split with git worktrees, never two sessions in one folder.
 - After each passing `/check`, commit only the files you changed (never `git add -A`). Never work 30 min without a commit; roll back to the last commit if broken.
 - `/hp-review` after P0-a, after P0-b and before the freeze. New information on the day goes through `/intake`.
 - Keep function signatures; add new functions if needed. Wrap every LLM and file call in try/except, fall back to cache, show it small on screen.
@@ -373,7 +380,7 @@ Source of truth: the design canvas "HP-Ready homeowner flow" and its files in `d
 
 ## Demo (P0 only, default)
 
-1. 🏠 Homeowner: the homeowner's question first. Type the persona sentence (`assets/demo/house_persona_en.txt`), add a radiator photo (`data/pipe_photos/`) and the bill (`assets/demo/bill_demo_gas_2025_photo.jpg`), well under 3 minutes → step 4 shows what was read and from where → colour with probabilities, reason, what's still open, scale, cost → press the next-step button: the quote request is already filled in, only name, contact and postcode are left. Then `house_minimal_en.txt` → yellow "can't tell yet" + one question (missing data is not red); `house_conflict_en.txt` with the gas bill → step 4 asks "oil or gas?".
+1. 🏠 Homeowner: the homeowner's question first. Type the persona sentence (`assets/demo/house_persona_en.txt`), add a radiator photo (`data/pipe_photos/`) and the bill (`assets/demo/bill_demo_gas_2025_photo.jpg`), well under 3 minutes → step 4 shows what was read and from where → colour with probabilities, reason, what's still open, scale, cost → press the next-step button: the quote request is already filled in, only name, contact and postcode are left → "PDF for the installer": show the page (confirmed vs estimated vs to check, the installer recommendation on top). Then `house_minimal_en.txt` → yellow "can't tell yet" + one question (missing data is not red); `house_conflict_en.txt` with the gas bill → step 4 asks "oil or gas?".
 2. 📊 Evaluation: dev accuracy and leave-one-out → **B-04 and B-05 results** → B-05 contradiction (125 m² but 14 rooms and a bill +76 % above the area-age load; we trust area-age, widen the range and ask "is all heated area included?") → B-01 contradiction (bill ~2.4 kW vs area and age ~11 kW, −78 %; trusting area-age; installer to check habits/LPG) → AI-found facts with quotes (B-02 "A wood stove is used all winter").
 3. 🔧 Installer: B-04 → single-pipe, red with a path to yellow and the loop checks; or B-03 → visit with parts: about N radiators, 12 valves, balancing, check the unused top floor.
 4. Rechenweg once; same input twice → same result.
@@ -384,6 +391,7 @@ Optional live moment: snap a real radiator on stage; Demo-mode cache if the call
 - "'Would a heat pump even work in my home?' Today only a technician's visit answers that. We answer it in under three minutes, and we say what we can't tell."
 - "Missing data isn't a no. We say 'can't tell yet' and name the one thing that would settle it."
 - "Getting one quote today means hours of forms. Here it takes three minutes, and the request is already filled in." (Use a number only if you measured it yourself.)
+- "The installer gets one page: what's confirmed, what's estimated, what to check. They know in a minute whether the trip is worth it."
 - "In Germany, the scarcest resource isn't energy. It's the installer's time."
 - "The LLM reads. Physics decides. Nothing is made up."
 - "Real data contradicts itself. We show which source we trusted and why."
@@ -396,7 +404,7 @@ Optional live moment: snap a real radiator on stage; Demo-mode cache if the call
 - Let the LLM output verdicts, colours or numbers.
 - Output prices, installation cost or subsidies beyond the fixed assumptions.
 - Generate fake buildings or visits.
-- Send quote requests or store names and contacts (mailto draft and download only), or invent a recipient address.
+- Send quote requests or store names and contacts (PDF download and mailto draft only), or invent a recipient address.
 - Add features in the last hour (code freeze).
 
 ## On-site information protocol (whenever the user pastes something new)
