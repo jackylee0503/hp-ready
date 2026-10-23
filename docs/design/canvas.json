@@ -1,0 +1,27 @@
+{
+  "v": 3,
+  "createdOnFiles": {"v": 1, "at": "2026-10-23T20:45:00Z"},
+  "title": "HP-Ready homeowner flow",
+  "launch": {"view": "canvas"},
+  "pages": [],
+  "boards": {
+    "Main.dc.html": {"x": 0, "y": 0, "w": 390, "h": 900, "title": "1/4 · Your house", "is_interactive": true},
+    "Step2.dc.html": {"x": 470, "y": 0, "w": 390, "h": 1000, "title": "2/4 · Radiator photo", "is_interactive": true},
+    "Step3.dc.html": {"x": 940, "y": 0, "w": 390, "h": 860, "title": "3/4 · Bill or listing", "is_interactive": true},
+    "Step4.dc.html": {"x": 1410, "y": 0, "w": 390, "h": 1040, "title": "4/4 · Is this right?", "is_interactive": true},
+    "Answer.dc.html": {"x": 1880, "y": 0, "w": 390, "h": 1180, "title": "Answer (tap rows to open)", "is_interactive": true},
+    "Request.dc.html": {"x": 2350, "y": 0, "w": 390, "h": 1180, "title": "Pre-filled quote request", "is_interactive": true},
+    "NextStep.dc.html": {"x": 0, "y": 1300, "w": 1330, "h": 460, "title": "Next-step box, by result"},
+    "WebHome.dc.html": {"x": 0, "y": 2300, "w": 1280, "h": 940, "title": "Web · Homeowner wizard (click Next)", "expand": "fill", "is_interactive": true},
+    "WebAnswer.dc.html": {"x": 1360, "y": 2300, "w": 1280, "h": 1000, "title": "Web · Answer + request", "expand": "fill", "is_interactive": true},
+    "WebEval.dc.html": {"x": 2720, "y": 2300, "w": 1280, "h": 1180, "title": "Web · Evaluation (pitch screen)", "expand": "fill", "is_interactive": true},
+    "WebInstaller.dc.html": {"x": 4080, "y": 2300, "w": 1280, "h": 980, "title": "Web · Installer prep sheet", "expand": "fill", "is_interactive": true}
+  },
+  "order": ["Main.dc.html", "Step2.dc.html", "Step3.dc.html", "Step4.dc.html", "Answer.dc.html", "Request.dc.html", "NextStep.dc.html", "WebHome.dc.html", "WebAnswer.dc.html", "WebEval.dc.html", "WebInstaller.dc.html"],
+  "notes": {
+    "flowTitle": {"x": 0, "y": -300, "text": "Homeowner flow: tell → snap → bill → check → answer → request", "kind": "title1", "maxW": 2740},
+    "webTitle": {"x": 0, "y": 2000, "text": "Web (desktop): the same app, wider, plus Evaluation and Installer", "kind": "title1", "maxW": 5360},
+    "persona": {"x": 2820, "y": 0, "w": 300, "color": "blue", "text": "Example house: built 1972, 140 m², partly insulated (windows 2015, roof), gas ~18,000 kWh a year, 3 people, 10 radiators the owner calls \"the big flat ones\". Radiator photo: the organiser's two-pipe example. Bill: the fictional demo bill in assets/demo/.\n\nNumbers come from the spec's formulas (a scratch calculation), not from the finished engine. Rows with › open on tap, one at a time."}
+  },
+  "designSystems": []
+}

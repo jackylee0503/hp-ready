@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Pre-filled quote request</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#14213D}a:hover{color:#0B1328}
+</style>
+</helmet>
+<div style="width: 390px; height: 1180px; box-sizing: border-box; background: #F3F5F7; padding: 24px 20px 32px; display: flex; flex-direction: column; gap: 18px; font-family: 'Inter', system-ui, sans-serif; color: #14213D">
+
+<a href="Answer.dc.html" aria-label="Back to your answer" style="display: flex; align-items: center; min-height: 32px; min-width: 32px; text-decoration: none">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#14213D" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>
+</a>
+
+<div style="display: flex; flex-direction: column; gap: 6px">
+<h1 style="margin: 0; font-size: 28px; line-height: 1.15; font-weight: 700; letter-spacing: -0.01em">Your request is ready</h1>
+<p style="margin: 0; font-size: 15px; color: #4A5565">Just add how to reach you.</p>
+</div>
+
+<div style="background: #FFFFFF; border: 1px solid #E2E6EA; border-radius: 18px; padding: 2px 18px; display: flex; flex-direction: column">
+<button type="button" onClick="{{toggleSend}}" aria-expanded="{{sendOpen}}" style="display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 56px; border: none; background: transparent; font-family: inherit; color: #14213D; padding: 0">
+<span style="font-size: 15px; font-weight: 600">What we'll send</span>
+<span style="display: flex; align-items: center; gap: 6px; font-size: 14px; color: #4A5565">house · result · 4 checks
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4A5565" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="transform: {{sendChev}}; transition: transform 0.15s"><path d="M9 6l6 6-6 6"></path></svg></span>
+</button>
+<sc-if value="{{sendOpen}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; gap: 10px; padding: 4px 0 16px; font-size: 14px; line-height: 1.4">
+<div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 12px; font-weight: 700; color: #4A5565; text-transform: uppercase; letter-spacing: 0.04em">House</span><span>1972 terraced · 140 m² · windows 2015, roof · gas 18,002 kWh (2025) · 10 radiators, large (owner)</span></div>
+<div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 12px; font-weight: 700; color: #4A5565; text-transform: uppercase; letter-spacing: 0.04em">Our result</span><span>Green, just (58 / 37 / 5 %) · ≈ 54 °C (50–59) · ≈ 11 kW, bill 6–7</span></div>
+<div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 12px; font-weight: 700; color: #4A5565; text-transform: uppercase; letter-spacing: 0.04em">To check on site</span><span>Radiator sizes · two-pipe · low bill · load, power supply, outdoor unit</span></div>
+<div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 12px; font-weight: 700; color: #4A5565; text-transform: uppercase; letter-spacing: 0.04em">Photos</span><span>1 radiator, 1 bill</span></div>
+</div>
+</sc-if>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<label for="name" style="font-size: 13px; font-weight: 600; color: #4A5565">Name</label>
+<input id="name" type="text" autocomplete="name" style="min-height: 48px; box-sizing: border-box; padding: 0 12px; border: 1.5px solid #C9D0D8; border-radius: 12px; font-family: inherit; font-size: 16px; color: #14213D; background: #FFFFFF">
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<label for="contact" style="font-size: 13px; font-weight: 600; color: #4A5565">E-mail or phone</label>
+<input id="contact" type="text" autocomplete="email" style="min-height: 48px; box-sizing: border-box; padding: 0 12px; border: 1.5px solid #C9D0D8; border-radius: 12px; font-family: inherit; font-size: 16px; color: #14213D; background: #FFFFFF">
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<label for="plz" style="font-size: 13px; font-weight: 600; color: #4A5565">Postcode</label>
+<input id="plz" type="text" inputmode="numeric" autocomplete="postal-code" style="width: 140px; min-height: 48px; box-sizing: border-box; padding: 0 12px; border: 1.5px solid #C9D0D8; border-radius: 12px; font-family: inherit; font-size: 16px; color: #14213D; background: #FFFFFF">
+</div>
+</div>
+
+<div style="flex: 1"></div>
+<div style="display: flex; flex-direction: column; gap: 8px">
+<button type="button" style="min-height: 54px; border: none; border-radius: 14px; background: {{accent}}; color: #FFFFFF; font-family: inherit; font-size: 17px; font-weight: 700">Open as e-mail</button>
+<button type="button" style="min-height: 44px; border: none; background: transparent; color: #14213D; font-family: inherit; font-size: 15px; font-weight: 600">Download instead</button>
+<p style="margin: 0; text-align: center; font-size: 12px; color: #4A5565">Nothing is sent or stored by this app.</p>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#14213D","options":["#14213D","#1E5B8A","#1E7A46"]},"$preview":{"width":390,"height":1180}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const s = this.state || {};
+    const sendOpen = !!s.send;
+    return {
+      accent: this.props.accent ?? '#14213D',
+      sendOpen,
+      sendChev: sendOpen ? 'rotate(90deg)' : 'none',
+      toggleSend: () => this.setState({ send: !sendOpen })
+    };
+  }
+}
+</script>
+</body>
+</html>

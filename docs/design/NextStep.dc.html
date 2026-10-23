@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Next-step box by result</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#14213D}a:hover{color:#0B1328}
+</style>
+</helmet>
+<div style="width: 1330px; height: 460px; box-sizing: border-box; background: #F3F5F7; padding: 32px; display: flex; flex-direction: column; gap: 24px; font-family: 'Inter', system-ui, sans-serif; color: #14213D">
+
+<div style="display: flex; flex-direction: column; gap: 6px">
+<h2 style="margin: 0; font-size: 24px; font-weight: 700">What now? One button, picked by the result</h2>
+<p style="margin: 0; font-size: 15px; color: #4A5565">Every button opens the same pre-filled request, each with its own subject.</p>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px">
+
+<div style="background: #FFFFFF; border: 1px solid #E2E6EA; border-radius: 18px; padding: 20px; display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; align-items: center; gap: 10px">
+<span aria-hidden="true" style="width: 16px; height: 16px; border-radius: 50%; background: #1E7A46"></span>
+<p style="margin: 0; font-size: 15px; font-weight: 700">Green · likely suitable</p>
+</div>
+<button type="button" style="min-height: 52px; border: none; border-radius: 14px; background: {{accent}}; color: #FFFFFF; font-family: inherit; font-size: 16px; font-weight: 700">Get a quote</button>
+<p style="margin: 0; font-size: 14px; color: #4A5565; line-height: 1.45">A remote quote is likely possible. If not sure enough: "an installer will want a short look first".</p>
+</div>
+
+<div style="background: #FFFFFF; border: 1px solid #E2E6EA; border-radius: 18px; padding: 20px; display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; align-items: center; gap: 10px">
+<span aria-hidden="true" style="width: 16px; height: 16px; border-radius: 50%; background: #F2B705; box-shadow: 0 0 0 1.5px #E4A900"></span>
+<p style="margin: 0; font-size: 15px; font-weight: 700">Yellow · checks remain</p>
+</div>
+<button type="button" style="min-height: 52px; border: none; border-radius: 14px; background: {{accent}}; color: #FFFFFF; font-family: inherit; font-size: 16px; font-weight: 700">Request a short on-site check</button>
+<p style="margin: 0; font-size: 14px; color: #4A5565; line-height: 1.45">They'll look at: the top 2–3 open checks, e.g. pipe system, radiator sizes.</p>
+</div>
+
+<div style="background: #FFFFFF; border: 1px solid #E2E6EA; border-radius: 18px; padding: 20px; display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; align-items: center; gap: 10px">
+<span aria-hidden="true" style="width: 16px; height: 16px; border-radius: 50%; background: #FFFFFF; box-shadow: inset 0 0 0 3px #E4A900"></span>
+<p style="margin: 0; font-size: 15px; font-weight: 700">Yellow · can't tell yet</p>
+</div>
+<button type="button" style="min-height: 52px; border: none; border-radius: 14px; background: {{accent}}; color: #FFFFFF; font-family: inherit; font-size: 16px; font-weight: 700">Answer one more question</button>
+<p style="margin: 0; font-size: 14px; color: #4A5565; line-height: 1.45">The one question that moves the answer most, e.g. "When was the house built?"</p>
+<a href="#" style="font-size: 14px; font-weight: 600">or request a check</a>
+</div>
+
+<div style="background: #FFFFFF; border: 1px solid #E2E6EA; border-radius: 18px; padding: 20px; display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; align-items: center; gap: 10px">
+<span aria-hidden="true" style="width: 16px; height: 16px; border-radius: 50%; background: #B42318"></span>
+<p style="margin: 0; font-size: 15px; font-weight: 700">Red · obstacle</p>
+</div>
+<button type="button" style="min-height: 52px; border: none; border-radius: 14px; background: {{accent}}; color: #FFFFFF; font-family: inherit; font-size: 16px; font-weight: 700">See what gets you to yellow</button>
+<p style="margin: 0; font-size: 14px; color: #4A5565; line-height: 1.45">About [X] kW more radiator output, or [Y] % less heat loss. Numbers come from the engine.</p>
+<a href="#" style="font-size: 14px; font-weight: 600">talk to an installer anyway</a>
+</div>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#14213D","options":["#14213D","#1E5B8A","#1E7A46"]},"$preview":{"width":1330,"height":460}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { accent: this.props.accent ?? '#14213D' };
+  }
+}
+</script>
+</body>
+</html>

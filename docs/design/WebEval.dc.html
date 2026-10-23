@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Web: evaluation</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#14213D}a:hover{color:#0B1328}
+</style>
+</helmet>
+<div style="min-height: 100vh; background: #F3F5F7; font-family: 'Inter', system-ui, sans-serif; color: #14213D">
+
+<header style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 10px 32px; background: #FFFFFF; border-bottom: 1px solid #E2E6EA">
+<div style="display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 700">
+<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#14213D" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-7 9 7"></path><path d="M5 10v10h14V10"></path><path d="M10 20v-5h4v5"></path></svg>
+HP-Ready
+</div>
+<nav aria-label="Sections" style="display: flex; flex-wrap: wrap; gap: 4px">
+<a href="WebHome.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 16px; border-radius: 999px; color: #14213D; text-decoration: none; font-size: 15px; font-weight: 600">Homeowner</a>
+<a href="WebEval.dc.html" aria-current="page" style="display: flex; align-items: center; min-height: 44px; padding: 0 16px; border-radius: 999px; background: #14213D; color: #FFFFFF; text-decoration: none; font-size: 15px; font-weight: 600">Evaluation</a>
+<a href="WebInstaller.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 16px; border-radius: 999px; color: #14213D; text-decoration: none; font-size: 15px; font-weight: 600">Installer</a>
+</nav>
+</header>
+
+<main style="max-width: 1200px; margin: 0 auto; padding: 32px 24px 40px; display: flex; flex-direction: column; gap: 20px">
+
+<div style="display: flex; flex-direction: column; gap: 6px">
+<h1 style="margin: 0; font-size: 32px; font-weight: 700; letter-spacing: -0.01em">Evaluation</h1>
+<p style="margin: 0; font-size: 16px; color: #4A5565">5 real nuuEnergy buildings: 3 with reference values, 2 judged by you.</p>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px">
+<div style="background: #FFFFFF; border: 1px solid #E2E6EA; border-radius: 16px; padding: 18px 20px; display: flex; flex-direction: column; gap: 4px">
+<span style="font-size: 13px; font-weight: 600; color: #4A5565">Dev verdicts reproduced</span>
+<span style="font-size: 28px; font-weight: 700">3 / 3</span>
+</div>
+<div style="background: #FFFFFF; border: 1px solid #E2E6EA; border-radius: 16px; padding: 18px 20px; display: flex; flex-direction: column; gap: 4px">
+<span style="font-size: 13px; font-weight: 600; color: #4A5565">Load error, leave-one-out</span>
+<span style="font-size: 28px; font-weight: 700">+20 · −9 · −8 %</span>
+</div>
+<div style="background: #FFFFFF; border: 1px solid #E2E6EA; border-radius: 16px; padding: 18px 20px; display: flex; flex-direction: column; gap: 4px">
+<span style="font-size: 13px; font-weight: 600; color: #4A5565">Calibrated numbers</span>
+<span style="font-size: 28px; font-weight: 700">1 <span style="font-size: 16px; font-weight: 600; color: #4A5565">(k = 1.01)</span></span>
+</div>
+</div>
+
+<div style="background: #FFFFFF; border: 1px solid #E2E6EA; border-radius: 20px; overflow-x: auto">
+<table style="width: 100%; border-collapse: collapse; font-size: 15px; min-width: 900px">
+<thead>
+<tr style="text-align: left; color: #4A5565; font-size: 13px">
+<th scope="col" style="padding: 14px 18px; font-weight: 600">Building</th>
+<th scope="col" style="padding: 14px 10px; font-weight: 600">Set</th>
+<th scope="col" style="padding: 14px 10px; font-weight: 600">Verdict</th>
+<th scope="col" style="padding: 14px 10px; font-weight: 600">How sure</th>
+<th scope="col" style="padding: 14px 10px; font-weight: 600">Water temp.</th>
+<th scope="col" style="padding: 14px 10px; font-weight: 600">Heating load</th>
+<th scope="col" style="padding: 14px 10px; font-weight: 600">Flags</th>
+<th scope="col" style="padding: 14px 18px 14px 10px; font-weight: 600">Visit</th>
+</tr>
+</thead>
+<tbody>
+<sc-for list="{{rows}}" as="row" hint-placeholder-count="5">
+<tr style="border-top: 1px solid #EEF1F4; background: {{row.bg}}">
+<td style="padding: 10px 18px"><button type="button" onClick="{{row.pick}}" aria-pressed="{{row.selected}}" style="min-height: 44px; padding: 0 10px; margin-left: -10px; border: none; border-radius: 10px; background: transparent; font-family: inherit; font-size: 15px; font-weight: 700; color: #14213D; text-decoration: underline; text-underline-offset: 3px">{{row.id}}</button></td>
+<td style="padding: 10px; color: #4A5565">{{row.set}}</td>
+<td style="padding: 10px"><span style="display: inline-flex; align-items: center; gap: 8px; font-weight: 700"><span aria-hidden="true" style="width: 12px; height: 12px; border-radius: 50%; background: {{row.dot}}"></span>{{row.verdict}}</span></td>
+<td style="padding: 10px"><div style="display: flex; align-items: center; gap: 8px"><div style="display: flex; width: 90px; height: 8px; border-radius: 4px; overflow: hidden" role="img" aria-label="{{row.sureAria}}"><div style="width: {{row.g}}; background: #1E7A46"></div><div style="width: {{row.y}}; background: #F2B705"></div><div style="width: {{row.r}}; background: #B42318"></div></div><span style="font-size: 13px; color: #4A5565">{{row.sure}}</span></div></td>
+<td style="padding: 10px">{{row.temp}}</td>
+<td style="padding: 10px">{{row.load}}</td>
+<td style="padding: 10px">{{row.flags}}</td>
+<td style="padding: 10px 18px 10px 10px; color: #4A5565">{{row.visit}}</td>
+</tr>
+</sc-for>
+</tbody>
+</table>
+</div>
+
+<div style="background: #FFFFFF; border: 1px solid #E2E6EA; border-radius: 20px; padding: 24px 26px; display: flex; flex-wrap: wrap; gap: 28px">
+<div style="flex: 1 1 300px; min-width: 0; display: flex; flex-direction: column; gap: 10px">
+<p style="margin: 0; font-size: 13px; font-weight: 600; color: #4A5565">Details</p>
+<h2 style="margin: 0; font-size: 22px; font-weight: 700">{{d.title}}</h2>
+<p style="margin: 0; font-size: 16px; font-weight: 600">{{d.verdict}}</p>
+<ul style="margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; font-size: 15px; line-height: 1.45">
+<sc-for list="{{d.why}}" as="w" hint-placeholder-count="2"><li>{{w.t}}</li></sc-for>
+</ul>
+</div>
+<div style="flex: 1 1 300px; min-width: 0; display: flex; flex-direction: column; gap: 10px">
+<p style="margin: 0; font-size: 13px; font-weight: 600; color: #4A5565">Contradictions · which source we trusted</p>
+<ul style="margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; font-size: 15px; line-height: 1.45">
+<sc-for list="{{d.contra}}" as="c" hint-placeholder-count="2"><li>{{c.t}}</li></sc-for>
+</ul>
+</div>
+<div style="flex: 1 1 300px; min-width: 0; display: flex; flex-direction: column; gap: 10px">
+<p style="margin: 0; font-size: 13px; font-weight: 600; color: #4A5565">What the AI read in the notes</p>
+<sc-for list="{{d.facts}}" as="f" hint-placeholder-count="2">
+<div style="display: flex; flex-direction: column; gap: 2px; padding-left: 12px; box-shadow: inset 3px 0 0 #E2E6EA">
+<span style="font-size: 15px; font-style: italic">"{{f.q}}"</span>
+<span style="font-size: 13px; color: #4A5565">→ {{f.m}}</span>
+</div>
+</sc-for>
+</div>
+</div>
+
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":1180}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const s = this.state || {};
+    const sel = s.sel || 'B-05';
+    const C = { g: '#1E7A46', y: '#F2B705', r: '#B42318' };
+    const base = [
+      { id: 'B-01', set: 'dev', verdict: 'Green ✓', dot: C.g, g: 52, y: 20, r: 28, sure: 'uncertain', temp: '55 °C (46–>70)', load: '10.8 kW · ref 9.6', flags: '2', visit: 'Visit with parts' },
+      { id: 'B-02', set: 'dev', verdict: 'Green ✓', dot: C.g, g: 100, y: 0, r: 0, sure: 'underfloor', temp: '35–40 °C', load: '9.1 kW · ref 9.7', flags: '1', visit: 'Visit with parts' },
+      { id: 'B-03', set: 'dev', verdict: 'Yellow ✓', dot: C.y, g: 33, y: 23, r: 44, sure: 'uncertain', temp: '59 °C (48–>70)', load: '13.7 kW · ref 14.5', flags: '1', visit: 'Visit with parts' },
+      { id: 'B-04', set: 'eval', verdict: 'Red', dot: C.r, g: 1, y: 9, r: 90, sure: '90 % red', temp: '72 °C (60–>70)', load: '13.7 kW · bill 9.5', flags: 'single-pipe', visit: 'Hold' },
+      { id: 'B-05', set: 'eval', verdict: 'Green', dot: C.g, g: 74, y: 12, r: 14, sure: '74 % green', temp: '44 °C (39–62)', load: '6.3 kW · bill 11.1', flags: '2', visit: 'Visit with parts' }
+    ];
+    const details = {
+      'B-01': { title: 'B-01 · 2001 · 195 m² · LPG · 14 radiators', verdict: 'Green ✓ (reference green), uncertain', why: ['Size and age: 10.8 kW (reference 9.6 kW)', '14 radiators of unknown size: about 54 °C with medium ones'], contra: ['Bill 2.4 kW vs size and age 10.8 kW (−78 %): trusted size and age; check habits and LPG', 'No renovation documented, but U-values beat the code: partly renovated'], facts: [{ q: 'external wall 0.21', m: 'better than 2001 code' }] },
+      'B-02': { title: 'B-02 · 2005 · 180 m² · gas · underfloor', verdict: 'Green ✓ (reference green)', why: ['Underfloor heating: 35–40 °C', 'Size and age: 9.1 kW (reference 9.7 kW)'], contra: ['Wood stove all winter: the gas bill is only a lower bound'], facts: [{ q: 'A wood stove is used all winter', m: 'extra heat source' }, { q: 'Solar thermal system for hot water present', m: 'hot-water share halved' }] },
+      'B-03': { title: 'B-03 · 1970 · 200 m² · oil · 15 radiators, two-pipe', verdict: 'Yellow ✓ (reference yellow), uncertain', why: ['Size and age, partly renovated, top floor unused: 13.7 kW (reference 14.5 kW)', '15 radiators: about 58 °C'], contra: ['Top floor not lived in: heated area × 0.85'], facts: [{ q: 'Top floor added in the 1990s, currently not lived in', m: 'unused area' }, { q: 'Cavity wall insulation (blown-in) and insulated roof', m: 'partly renovated' }] },
+      'B-04': { title: 'B-04 · 1987 · 160 m² · oil · 12 radiators, single-pipe', verdict: 'Red: an obstacle, not missing data', why: ['Size and age: 13.7 kW (bill 9.5 kW)', 'Single-pipe loop plus 12 radiators: about 72 °C', 'Even with all-large radiators about 62 °C'], contra: ['None: bill and litres agree'], facts: [{ q: 'Semi-detached house', m: 'building type' }, { q: 'No renovation information', m: 'red either way' }] },
+      'B-05': { title: 'B-05 · 2006 · 125 m² · gas · underfloor + 8 radiators', verdict: 'Green', why: ['Mixed heating: the radiator circuit decides (8 radiators, 14 rooms)', 'Size and age: 6.3 kW, radiator circuit about 44 °C'], contra: ['Bill 11.1 kW vs size and age 6.3 kW (+76 %): trusted size and age, range widened', '14 rooms in 125 m²: is all heated area included?'], facts: [{ q: 'No additional insulation on facade or roof', m: 'no insulation work' }, { q: 'Solar thermal system present', m: 'hot-water share halved (assumed)' }] }
+    };
+    const rows = base.map((r) => ({
+      ...r,
+      g: r.g + '%', y: r.y + '%', r: r.r + '%',
+      sureAria: 'Green ' + r.g + ' percent, yellow ' + r.y + ' percent, red ' + r.r + ' percent',
+      selected: r.id === sel,
+      bg: r.id === sel ? '#EAF1F8' : 'transparent',
+      pick: () => this.setState({ sel: r.id })
+    }));
+    const d0 = details[sel];
+    const d = { ...d0, why: d0.why.map((t) => ({ t })), contra: d0.contra.map((t) => ({ t })) };
+    return { rows, d };
+  }
+}
+</script>
+</body>
+</html>

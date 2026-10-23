@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Web: homeowner wizard</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#14213D}a:hover{color:#0B1328}
+</style>
+</helmet>
+<div style="min-height: 100vh; background: #F3F5F7; font-family: 'Inter', system-ui, sans-serif; color: #14213D">
+
+<header style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 10px 32px; background: #FFFFFF; border-bottom: 1px solid #E2E6EA">
+<div style="display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 700">
+<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#14213D" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-7 9 7"></path><path d="M5 10v10h14V10"></path><path d="M10 20v-5h4v5"></path></svg>
+HP-Ready
+</div>
+<nav aria-label="Sections" style="display: flex; flex-wrap: wrap; gap: 4px">
+<a href="WebHome.dc.html" aria-current="page" style="display: flex; align-items: center; min-height: 44px; padding: 0 16px; border-radius: 999px; background: #14213D; color: #FFFFFF; text-decoration: none; font-size: 15px; font-weight: 600">Homeowner</a>
+<a href="WebEval.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 16px; border-radius: 999px; color: #14213D; text-decoration: none; font-size: 15px; font-weight: 600">Evaluation</a>
+<a href="WebInstaller.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 16px; border-radius: 999px; color: #14213D; text-decoration: none; font-size: 15px; font-weight: 600">Installer</a>
+</nav>
+</header>
+
+<main style="max-width: 1120px; margin: 0 auto; padding: 32px 24px; display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start">
+
+<section style="flex: 999 1 560px; min-width: 0; background: #FFFFFF; border: 1px solid #E2E6EA; border-radius: 20px; padding: 28px; display: flex; flex-direction: column; gap: 20px">
+
+<div style="display: flex; align-items: center; gap: 14px">
+<span style="font-size: 13px; font-weight: 600; color: #4A5565; white-space: nowrap">{{stepLabel}}</span>
+<div style="flex: 1; max-width: 320px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px" aria-hidden="true">
+<div style="height: 5px; border-radius: 3px; background: {{bar1}}"></div>
+<div style="height: 5px; border-radius: 3px; background: {{bar2}}"></div>
+<div style="height: 5px; border-radius: 3px; background: {{bar3}}"></div>
+<div style="height: 5px; border-radius: 3px; background: {{bar4}}"></div>
+</div>
+</div>
+
+<sc-if value="{{s1}}" hint-placeholder-val="{{ true }}">
+<div style="display: flex; flex-direction: column; gap: 18px">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<h1 style="margin: 0; font-size: 32px; line-height: 1.15; font-weight: 700; letter-spacing: -0.01em">Tell us about your house</h1>
+<p style="margin: 0; font-size: 16px; color: #4A5565">Year, size, heating. Whatever you know.</p>
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<label for="wdesc" style="font-size: 13px; font-weight: 600; color: #4A5565">Your house</label>
+<textarea id="wdesc" rows="4" value="{{text}}" onChange="{{noop}}" style="box-sizing: border-box; width: 100%; padding: 14px; border: 1.5px solid #C9D0D8; border-radius: 14px; font-family: inherit; font-size: 16px; line-height: 1.5; color: #14213D; background: #FFFFFF; resize: none"></textarea>
+</div>
+<button type="button" style="align-self: flex-start; min-height: 48px; display: flex; align-items: center; gap: 8px; padding: 0 16px; border: 1.5px dashed #9AA5B1; border-radius: 14px; background: transparent; color: #14213D; font-family: inherit; font-size: 15px; font-weight: 600">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#14213D" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"></path><circle cx="12" cy="13" r="3.5"></circle></svg>
+Photo of the outside <span style="font-weight: 500; color: #4A5565">· optional</span>
+</button>
+</div>
+</sc-if>
+
+<sc-if value="{{s2}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; gap: 18px">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<h1 style="margin: 0; font-size: 32px; line-height: 1.15; font-weight: 700; letter-spacing: -0.01em">Your biggest radiator</h1>
+<p style="margin: 0; font-size: 16px; color: #4A5565">From the side, pipes in view.</p>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start">
+<img src="/_blob/3ef8d7eb6a00493a84b189c90a44c9f6" alt="Your photo: a panel radiator with a thermostatic valve on top and two pipes going into the floor" style="flex: 1 1 240px; min-width: 0; height: 300px; object-fit: cover; object-position: center 30%; border-radius: 16px; display: block">
+<div style="flex: 1 1 220px; min-width: 0; display: flex; flex-direction: column; gap: 10px">
+<p style="margin: 0; font-size: 13px; font-weight: 600; color: #1E5E37">✓ We read</p>
+<div style="display: flex; flex-wrap: wrap; gap: 6px">
+<span style="font-size: 14px; font-weight: 600; padding: 6px 10px; border-radius: 999px; background: #FFFFFF; border: 1px solid #E2E6EA">Panel radiator</span>
+<span style="font-size: 14px; font-weight: 600; padding: 6px 10px; border-radius: 999px; background: #FFFFFF; border: 1px solid #E2E6EA">Two-pipe likely</span>
+<span style="font-size: 14px; font-weight: 600; padding: 5px 9px; border-radius: 999px; background: transparent; border: 1.5px dashed #9AA5B1; color: #4A5565">Size?</span>
+</div>
+<p style="margin: 0; font-size: 14px; color: #4A5565; line-height: 1.45">Valve on top, separate return, two pipes into the floor. Panels and width aren't visible from the front.</p>
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; background: #EAF1F8; border-radius: 14px; padding: 8px 8px 8px 14px">
+<p style="margin: 0; font-size: 14px; font-weight: 600">Size unclear. One side shot?</p>
+<button type="button" style="min-height: 44px; padding: 0 14px; border: 1.5px solid #14213D; border-radius: 12px; background: #FFFFFF; color: #14213D; font-family: inherit; font-size: 15px; font-weight: 600">Retake</button>
+</div>
+</div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{s3}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; gap: 18px">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<h1 style="margin: 0; font-size: 32px; line-height: 1.15; font-weight: 700; letter-spacing: -0.01em">Bill or listing?</h1>
+<p style="margin: 0; font-size: 16px; color: #4A5565">Optional. Photo, PDF or screenshot.</p>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start">
+<img src="/_blob/a1407ddd5f4cd84c18a67dbea732730f" alt="Your upload: a photo of a gas bill for 2025" style="flex: 1 1 240px; min-width: 0; height: 260px; object-fit: cover; object-position: center 22%; border-radius: 16px; display: block">
+<div style="flex: 1 1 220px; min-width: 0; display: flex; flex-direction: column; gap: 10px">
+<p style="margin: 0; font-size: 13px; font-weight: 600; color: #1E5E37">✓ We read</p>
+<div style="display: flex; flex-wrap: wrap; gap: 6px">
+<span style="font-size: 14px; font-weight: 600; padding: 6px 10px; border-radius: 999px; background: #FFFFFF; border: 1px solid #E2E6EA">Gas · 2025</span>
+<span style="font-size: 14px; font-weight: 600; padding: 6px 10px; border-radius: 999px; background: #FFFFFF; border: 1px solid #E2E6EA">18,002 kWh</span>
+<span style="font-size: 14px; font-weight: 600; padding: 6px 10px; border-radius: 999px; background: #E7F4EC; color: #1E5E37">Matches your text</span>
+</div>
+<p style="margin: 0; font-size: 13px; color: #4A5565">Only the numbers are kept.</p>
+</div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{s4}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<h1 style="margin: 0; font-size: 32px; line-height: 1.15; font-weight: 700; letter-spacing: -0.01em">Is this right?</h1>
+<p style="margin: 0; font-size: 16px; color: #4A5565">Everything we know is on the right. Tap a row to fix it.</p>
+</div>
+<p style="margin: 0; font-size: 16px; font-weight: 600; color: #1E5E37">✓ No questions for you</p>
+<p style="margin: 0; font-size: 14px; color: #4A5565; line-height: 1.45">We only ask when something missing or contradictory would change your answer, at most twice.</p>
+</div>
+</sc-if>
+
+<div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding-top: 4px">
+<sc-if value="{{showBack}}" hint-placeholder-val="{{ false }}">
+<button type="button" onClick="{{back}}" style="min-height: 52px; padding: 0 20px; border: 1.5px solid #C9D0D8; border-radius: 14px; background: #FFFFFF; color: #14213D; font-family: inherit; font-size: 16px; font-weight: 600">Back</button>
+</sc-if>
+<sc-if value="{{showNext}}" hint-placeholder-val="{{ true }}">
+<button type="button" onClick="{{next}}" style="min-height: 52px; min-width: 180px; padding: 0 24px; border: none; border-radius: 14px; background: {{accent}}; color: #FFFFFF; font-family: inherit; font-size: 17px; font-weight: 700">Next</button>
+</sc-if>
+<sc-if value="{{s4}}" hint-placeholder-val="{{ false }}">
+<a href="WebAnswer.dc.html" style="display: flex; align-items: center; justify-content: center; min-height: 52px; min-width: 200px; padding: 0 24px; border-radius: 14px; background: {{accent}}; color: #FFFFFF; text-decoration: none; font-size: 17px; font-weight: 700">Show my answer</a>
+</sc-if>
+<sc-if value="{{showSkip}}" hint-placeholder-val="{{ false }}">
+<button type="button" onClick="{{next}}" style="min-height: 44px; padding: 0 12px; border: none; background: transparent; color: #14213D; font-family: inherit; font-size: 15px; font-weight: 600">Skip</button>
+</sc-if>
+</div>
+
+</section>
+
+<aside style="flex: 1 1 320px; min-width: 0; background: #FFFFFF; border: 1px solid #E2E6EA; border-radius: 20px; padding: 22px 22px 10px; display: flex; flex-direction: column; gap: 6px">
+<div style="display: flex; align-items: baseline; justify-content: space-between; gap: 10px">
+<h2 style="margin: 0; font-size: 18px; font-weight: 700">What we know so far</h2>
+<span style="font-size: 13px; color: #4A5565">tap to fix</span>
+</div>
+<div style="display: flex; flex-direction: column">
+<sc-for list="{{known}}" as="row" hint-placeholder-count="6">
+<button type="button" aria-label="{{row.aria}}" style="display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 48px; padding: 6px 0; border: none; border-bottom: 1px solid #EEF1F4; background: transparent; font-family: inherit; color: #14213D; text-align: left">
+<span style="font-size: 14px; color: #4A5565">{{row.label}}</span>
+<span style="display: flex; align-items: center; gap: 8px">
+<span style="font-size: 15px; font-weight: 600; text-align: right">{{row.value}}</span>
+<span style="font-size: 11px; font-weight: 600; color: #4A5565; background: #EEF1F4; border-radius: 999px; padding: 3px 7px; white-space: nowrap">{{row.source}}</span>
+</span>
+</button>
+</sc-for>
+</div>
+<p style="margin: 6px 0 10px; font-size: 13px; color: #4A5565">{{nextHint}}</p>
+</aside>
+
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#14213D","options":["#14213D","#1E5B8A","#1E7A46"]},"$preview":{"width":1280,"height":940}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const s = this.state || {};
+    const step = s.step || 2;
+    const accent = this.props.accent ?? '#14213D';
+    const all = [
+      { from: 1, label: 'Built', value: '1972', source: 'text' },
+      { from: 1, label: 'Living area', value: '140 m²', source: 'text' },
+      { from: 1, label: 'House type', value: 'Terraced', source: 'text' },
+      { from: 1, label: 'Insulation', value: 'Partly', source: 'text' },
+      { from: 1, label: 'Heating', value: 'Gas ~18,000 kWh', source: 'text' },
+      { from: 1, label: 'Radiators', value: '10, large?', source: 'text' },
+      { from: 2, label: 'Pipes', value: 'Two-pipe?', source: 'photo' },
+      { from: 3, label: 'Gas use 2025', value: '18,002 kWh', source: 'bill' },
+      { from: 1, label: 'People', value: '3', source: 'text' }
+    ];
+    const known = all.filter((r) => step >= r.from).map((r) => ({ ...r, aria: 'Fix ' + r.label.toLowerCase() + ': ' + r.value }));
+    const hints = { 1: 'Next: a photo of your biggest radiator.', 2: 'Next: your bill or a listing (optional).', 3: 'Next: a quick check, then your answer.', 4: 'Ready for your answer.' };
+    return {
+      accent,
+      text: 'Terraced house from 1972, about 140 m². New windows in 2015, roof insulated. Gas heating, roughly 18,000 kWh a year, three of us. 10 radiators, the big flat ones.',
+      noop: () => {},
+      stepLabel: step + ' of 4',
+      s1: step === 1, s2: step === 2, s3: step === 3, s4: step === 4,
+      bar1: accent, bar2: step >= 2 ? accent : '#D5DBE1', bar3: step >= 3 ? accent : '#D5DBE1', bar4: step >= 4 ? accent : '#D5DBE1',
+      showBack: step > 1, showNext: step < 4, showSkip: step === 2 || step === 3,
+      next: () => this.setState({ step: Math.min(4, step + 1) }),
+      back: () => this.setState({ step: Math.max(1, step - 1) }),
+      known,
+      nextHint: hints[step]
+    };
+  }
+}
+</script>
+</body>
+</html>
