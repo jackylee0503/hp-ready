@@ -60,7 +60,6 @@ PANEL_TASK = Task(
         ],
         PANEL_CLOSED: [
             "a photo of a closed electrical panel cabinet with the door shut",
-            "a photo of a metal fuse box cover on a wall",
             "a photo of a wall or room, no electrical panel interior visible",
         ],
     },
