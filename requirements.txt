@@ -1,7 +1,14 @@
+# Core app stack
 streamlit
 pydantic>=2
 pandas<3
 numpy
 anthropic
 pyarrow<22
-pillow<12
+
+# Bill parsing / OCR stack
+pymupdf  # PDF text extraction and page handling for utility bills
+pillow<12  # image preprocessing before OCR (grayscale, resize, thresholding)
+pytesseract  # OCR engine wrapper for reading scanned bill images and screenshots
+pdfplumber  # PDF table and text extraction fallback for messy bills
+opencv-python-headless  # image preprocessing and document cleanup before OCR
