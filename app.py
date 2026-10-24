@@ -2111,11 +2111,13 @@ def tab_homeowner():
             st.caption("Optional. Photo, PDF or screenshot.")
             up_col, ex_col = st.columns([3, 2])
             with ex_col:                                 # what a usable bill looks like (shown once, straightened)
-                ex = ROOT / "assets/demo/bill_demo_example.png"      # rendered from the demo PDF (sharp)
-                sharp_image(str(ex) if ex.exists() else (bill_example_png() or str(ROOT / DEMO_BILL)), 220)
-                st.caption("Like this: the page with your yearly use in kWh or m³. You can cover your name and address.")
+                ex = ROOT / "assets/demo/bill_how_to.png"   # neutral sketch: where the kWh line is (no demo numbers)
+                if ex.exists():
+                    sharp_image(str(ex), 220)
+                st.caption("Look for the line with your yearly use in kWh or m³. You can cover your name and address.")
                 if ss.get("tag_doc_demo") and ss.reads.get("doc"):
-                    html('<p class="ok">✓ Attached: the demo bill</p>')
+                    html('<p class="ok">✓ Attached: the example house's demo bill</p>')
+                    st.caption("Upload your own bill to replace it.")
             with up_col:
                 read_upload(st.file_uploader("Bill or listing", type=["jpg", "jpeg", "png", "webp", "pdf"],
                                              key="up_doc", label_visibility="collapsed"), "doc", "bill")
