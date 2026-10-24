@@ -67,6 +67,19 @@ Input `{"house": House}`. Output a full `Result`; this replaces `engine.py`'s `e
 ## 4. Page-1 form → `House`
 The form fills these `House` fields with `confidence[field] = 0.9`: `build_year`, `living_area_m2`, `building_type`, `renovation`, `heat_distribution`, `fuel_type`, `annual_fuel_kwh` (or `annual_fuel_liters`), `occupants`, `radiator_count`, `radiator_size`, `dhw_by_boiler`, `rooms`. "Don't know" → `null`. Example: `contracts/examples/calc_input_form.json`.
 - `source[field]`: the target is `"form"`. Until `extract.merge` (`ORDER`) and `engine._field_conf` know `"form"`, the app sends `"text"` (owner-entered, same merge rank and confidence as the old text step) and only the screens say "form". Switch: `app.py` `FORM_MERGE_SRC`.
+- Page 1 is **dropdowns only** (2026-10-24), so several values are **bins, not measurements**. Models must treat them as such:
+
+| Field | Form choices | What arrives in `House` | How to read it |
+| --- | --- | --- | --- |
+| `build_year` | bands: before 1960 · 1960–1978 · 1979–1994 · 1995–2001 · 2002–2015 · 2016 or later | a **representative year inside the band**: 1950 · 1970 · 1987 · 1998 · 2008 · 2018, and `evidence["build_year"] = "band 1960–1978"` | When `evidence["build_year"]` starts with `"band "`, the year is a stand-in: use the band (e.g. as a category or as the interval `[1960, 1978]`), never as an exact year. Without that evidence the year is exact (organiser data, bill/listing, free text). The bands match the W/m² table rows and keep the 1960–1978 single-pipe rule. |
+| `living_area_m2` | 40–400 m² in 10 m² steps ("about 140 m²") | the step value, e.g. `140.0` | ±5 m² rounding; an interval `[x−5, x+5]` if your model wants one |
+| `annual_fuel_kwh` | 2,000–60,000 kWh in 1,000 steps (not oil) | the step value | ±500 kWh rounding |
+| `annual_fuel_liters` | 500–6,000 L in 100 steps (oil only) | the step value; `annual_fuel_kwh` stays `null` | ±50 L rounding; ×10 kWh/L happens in the calculation |
+| `occupants`, `rooms`, `radiator_count` | integers (1–8, 1–20, 1–30) | exact | |
+| enums (`building_type`, `renovation`, `heat_distribution`, `fuel_type`, `radiator_size`, `dhw_by_boiler`) | one option each | exact enum value | `renovation` "partly" → `"partially"` |
+
+- Later steps can overrule form values: the bill wins on fuel and yearly use, the radiator photo on radiator size and pipe system, a confirmed conflict answer on anything (`source[field] = "confirmed"`). The optional free text (page 4, LLM parser, only on demand) arrives as `source = "notes_llm"` and only fills fields the form left empty; disagreements are listed in `House.conflicts`.
+- Organiser buildings (`data/`) and `contracts/examples/calc_input_B-0x.json` carry exact years with no band evidence; `contracts/examples/calc_input_form.json` shows a form house.
 
 ## 5. Check your output
 
