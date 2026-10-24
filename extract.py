@@ -197,3 +197,62 @@ def obs_to_house(kind: str, obs) -> House:
 def extract(file_bytes: bytes, mime: str, mission: str) -> House:
     kind, obs = read_obs(file_bytes, mime, mission)
     return obs_to_house(kind, obs)
+
+
+# ---------------------------------------------------------------- merge (CLAUDE.md "Which source wins")
+
+ORDER = {
+    "owner": ["confirmed", "data", "text", "listing", "bill", "photo", "notes_llm", "rule", "prior"],
+    "device": ["confirmed", "data", "photo", "text", "listing", "bill", "notes_llm", "rule", "prior"],
+    "use": ["confirmed", "data", "bill", "listing", "text", "photo", "notes_llm", "rule", "prior"],
+}
+GROUP = {**{f: "owner" for f in ("build_year", "living_area_m2", "occupants", "rooms", "building_type",
+                                  "renovation", "radiator_count", "heat_distribution")},
+         **{f: "use" for f in ("annual_fuel_kwh", "annual_fuel_liters", "fuel_type", "monthly_advance_eur", "m3",
+                                "kwh_printed", "liters")}}
+SKIP = {"building_id", "confidence", "source", "evidence", "missing", "conflicts", "data_notes", "notes",
+        "notes_obs", "retake_tip"}
+
+
+def _same(a, b) -> bool:
+    if isinstance(a, (int, float)) and isinstance(b, (int, float)) and not isinstance(a, bool):
+        if 1800 <= a <= 2100 and 1800 <= b <= 2100:   # years: 5 % tolerance would swallow 99 years
+            return a == b
+        return abs(a - b) <= 0.05 * max(abs(a), abs(b), 1)
+    return a == b
+
+
+def merge(base: House, new: House) -> House:
+    """Per-field source priority; LLM confidence only breaks ties within one source. Logs disagreements."""
+    out = base.model_copy(deep=True)
+
+    def take(f):
+        setattr(out, f, getattr(new, f))
+        out.source[f] = new.source.get(f, "prior")
+        out.confidence[f] = new.confidence.get(f, 0.5)
+        if f in new.evidence:
+            out.evidence[f] = new.evidence[f]
+
+    for f in House.model_fields:
+        if f in SKIP or getattr(new, f) is None:
+            continue
+        ov, nv = getattr(out, f), getattr(new, f)
+        if ov is None:
+            take(f)
+            continue
+        order = ORDER[GROUP.get(f, "device")]
+        os_, ns = out.source.get(f, "prior"), new.source.get(f, "prior")
+        ri, rj = order.index(ns) if ns in order else len(order), order.index(os_) if os_ in order else len(order)
+        new_wins = ri < rj or (ri == rj and new.confidence.get(f, 0) > out.confidence.get(f, 0))
+        if not _same(ov, nv) and ns != os_:
+            out.conflicts = [c for c in out.conflicts if c["field"] != f] + [
+                {"field": f, "values": {os_: ov, ns: nv}, "used": ns if new_wins else os_}]
+        if new_wins:
+            take(f)
+    out.evidence.update({k: v for k, v in new.evidence.items() if k not in out.evidence})
+    if new.notes_obs and not out.notes_obs:
+        out.notes_obs = new.notes_obs
+    out.missing.update(new.missing)
+    out.retake_tip = new.retake_tip or out.retake_tip
+    out.data_notes = out.data_notes + [n for n in new.data_notes if n not in out.data_notes]
+    return out

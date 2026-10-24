@@ -152,5 +152,57 @@
    },
    "retake_tip": "To judge panel type and size, photograph the whole radiator from the front. To judge the pipe system, show the pipes' routing to the wall or floor."
   }
+ },
+ "231a80faf07a147bd8ea": {
+  "kind": "house_text",
+  "obs": {
+   "build_year": 1985,
+   "living_area_m2": 120.0,
+   "building_type": "detached",
+   "renovation": "unrenovated",
+   "renovation_hints": [],
+   "heat_distribution": null,
+   "fuel_type": "oil",
+   "yearly_use_value": null,
+   "yearly_use_unit": null,
+   "occupants": 4,
+   "radiator_count": null,
+   "radiator_size_words": null,
+   "radiator_size": null,
+   "boiler_condensing": null,
+   "notes": {
+    "u_values": {},
+    "extra_heat_source": null,
+    "extra_source_all_winter": null,
+    "solar_thermal_dhw": null,
+    "unheated_area_note": null,
+    "insulation_measures": null,
+    "glazing": null,
+    "building_type": "detached",
+    "evidence": {
+     "building_type": "Detached house"
+    },
+    "confidence": {
+     "building_type": 0.98
+    },
+    "method": "keywords"
+   },
+   "evidence": {
+    "building_type": "Detached house",
+    "build_year": "built 1985",
+    "living_area_m2": "120 m²",
+    "fuel_type": "oil heating",
+    "occupants": "4 people",
+    "renovation": "Never renovated as far as I know."
+   },
+   "confidence": {
+    "building_type": 0.98,
+    "build_year": 0.98,
+    "living_area_m2": 0.98,
+    "fuel_type": 0.95,
+    "occupants": 0.95,
+    "renovation": 0.7
+   }
+  }
  }
 }
