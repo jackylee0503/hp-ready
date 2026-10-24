@@ -788,7 +788,9 @@ def _band_text(h: House | None, s: str | None) -> str | None:
     return re.sub(rf"\b{h.build_year}\b", ev[5:], s)
 
 
-def rechenweg(r: Result, h: House | None = None):
+def rechenweg(r: Result, h: House | None = None, full: bool = True):
+    """The calculation steps (Invariant 4). full=False: steps only, for the Evaluation detail, which already shows the
+    explanations, the other outputs and the contradictions."""
     b = qr(r, 'heat_load_bill_kw')
     st.markdown(f"Heating load (size, age): **{t_range(qr(r, 'heat_load_kw'), kw)}**"
                 + (f"  \nFrom the bill: {t_range(b, kw)}" if b.p50 is not None else ""))
@@ -796,11 +798,12 @@ def rechenweg(r: Result, h: House | None = None):
         rows = [{k: fix_text(_band_text(h, v)) if isinstance(v, str) else v for k, v in s.model_dump().items()}
                 for s in r.trace]
         st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
-    for extra in (explanations_html(r), other_outputs_html(r)):    # contract v2: only when the logic sent them
-        if extra:
-            st.html(extra)
-    for c in r.contradictions:
-        st.markdown(f"- **{c.what}**" + (f" · trusted: {c.trusted}." if c.trusted else "") + f" {c.why or ''}")
+    if full:
+        for extra in (explanations_html(r), other_outputs_html(r)):    # contract v2: only when the logic sent them
+            if extra:
+                st.html(extra)
+        for c in r.contradictions:
+            st.markdown(f"- **{c.what}**" + (f" · trusted: {c.trusted}." if c.trusted else "") + f" {c.why or ''}")
     st.caption("First estimate, not a DIN EN 12831 calculation. " + " · ".join(f"{k}: {v}" for k, v in TERMS.items()))
 
 
@@ -1403,6 +1406,8 @@ def tab_evaluation():
         st.info(f"No result for {bid}.")
         return
     st.html(eval_detail(bid, h, ref, r))
+    with st.expander("How we got this (calculation steps)"):     # the only place the trace shows since f452039
+        rechenweg(r, h, full=False)
 
 
 CHIPS = [("build_year", "{}"), ("living_area_m2", "{:.0f} m²"), ("building_type", "{}"), ("renovation", "{} renovated"),
