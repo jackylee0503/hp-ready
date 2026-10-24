@@ -1,6 +1,7 @@
 """HP-Ready. Tabs Homeowner / Evaluation / Installer. Layout and copy: docs/design/. The app never computes physics."""
 from __future__ import annotations
 
+import hashlib
 import re
 import urllib.parse
 from datetime import date
@@ -976,12 +977,6 @@ CHIPS = [("build_year", "{}"), ("living_area_m2", "{:.0f} m²"), ("building_type
          ("heat_distribution", "{}"), ("fuel_type", "{}"), ("annual_fuel_kwh", "{:,.0f} kWh"), ("occupants", "{} people"),
          ("radiator_count", "{} radiators"), ("radiator_size", "{} radiators"), ("pipe_system", "{}"),
          ("kwh_printed", "{:,.0f} kWh printed"), ("certificate_kwh_m2a", "{:.0f} kWh/m²a"), ("outdoor_unit_space", "outdoor spot: {}")]
-FIX = [("build_year", "Built", None), ("living_area_m2", "Living area (m²)", None),
-       ("heat_distribution", "Heating surfaces", ["radiators", "underfloor", "mixed"]),
-       ("renovation", "Insulation / renovation", ["unrenovated", "partially", "fully"]),
-       ("fuel_type", "Heating fuel", ["gas", "lpg", "oil", "district", "electric"]),
-       ("annual_fuel_kwh", "Yearly use (kWh)", None), ("occupants", "People", None),
-       ("radiator_count", "Radiators", None), ("radiator_size", "Radiator size", ["small", "medium", "large"])]
 
 
 def chips(h: House) -> str:
@@ -997,148 +992,196 @@ def chips(h: House) -> str:
     return "".join(out)
 
 
-# ---- page 1 form (decision 2026-10-24: a form replaces the free-text step; LLM reading is being phased out)
+# ---- page 1 "Your house" (UI review 2026-10-24: dropdown facts first, photo, bill, optional free text last)
 # Merge priority: the form is owner-entered, so it ranks like the old owner text ("text" in extract.ORDER: owner fields
 # beat bill/photo, the bill beats it for fuel and use, the photo beats it for radiator size and pipes). extract.merge and
 # engine._field_conf don't know "form" yet (they would rank it last / give it 0.3 confidence), so the form House carries
 # source "text" internally and the screens show "form" (src_label). Flip FORM_MERGE_SRC to "form" once both know it.
+# The optional page-4 free text is read by the LLM parser only on "Read it"; its House carries TEXT_MERGE_SRC
+# ("notes_llm": below form, bill and photo in every group), so it only fills fields that are still empty, and a
+# disagreement with the form is logged by extract.merge like any other conflict.
 FORM_MERGE_SRC = "text"
-DK = "don't know"
-FORM = [  # (field, label, options | None for numbers, option labels)
-    ("build_year", "Year built", None, None),
-    ("living_area_m2", "Living area m²", None, None),
-    ("building_type", "Building type", ["detached", "semi_detached", "terraced", "apartment"],
-     {"detached": "detached", "semi_detached": "semi-detached", "terraced": "terraced", "apartment": "apartment"}),
-    ("renovation", "Renovation", ["unrenovated", "partially", "fully"],
-     {"unrenovated": "not renovated", "partially": "partly", "fully": "fully"}),
-    ("heat_distribution", "Heating surfaces", ["radiators", "underfloor", "mixed"],
-     {"radiators": "radiators", "underfloor": "underfloor", "mixed": "both"}),
-    ("fuel_type", "Fuel", ["gas", "lpg", "oil", "district", "electric"],
-     {"gas": "gas", "lpg": "LPG", "oil": "oil", "district": "district heating", "electric": "electric"}),
-    ("use_value", "Yearly use", None, None),
-    ("use_unit", "Unit", ["kWh", "litres"], None),
-    ("occupants", "People", None, None),
-    ("rooms", "Rooms", None, None),
-    ("radiator_count", "Radiators (count)", None, None),
-    ("radiator_size", "Radiator size", ["small", "medium", "large"], None),
-    ("dhw_by_boiler", "Hot water from the boiler", ["yes", "no"], None),
+TEXT_MERGE_SRC = "notes_llm"
+DK = "Don't know"
+YEAR_BANDS = [  # (label, representative year, first, last): same W/m² row as any year inside, keeps the 1960–78 rule
+    ("before 1960", 1950, None, 1959), ("1960–1978", 1970, 1960, 1978), ("1979–1994", 1987, 1979, 1994),
+    ("1995–2001", 1998, 1995, 2001), ("2002–2015", 2008, 2002, 2015), ("2016 or later", 2018, 2016, None)]
+BAND_YEAR = {b: y for b, y, _, _ in YEAR_BANDS}
+
+
+def year_band(y) -> str | None:
+    try:
+        y = int(y)
+    except (TypeError, ValueError):
+        return None
+    return next((b for b, _, lo, hi in YEAR_BANDS if (lo is None or y >= lo) and (hi is None or y <= hi)), None)
+
+
+NAMES = {"detached": "detached", "semi_detached": "semi-detached", "terraced": "terraced", "apartment": "apartment",
+         "unrenovated": "not renovated", "partially": "partly", "fully": "fully",
+         "radiators": "radiators", "underfloor": "underfloor", "mixed": "both",
+         "gas": "gas", "lpg": "LPG", "oil": "oil", "district": "district heating", "electric": "electric"}
+FORM = [  # (field, label, options, value -> text)
+    ("build_year", "Year built", [b for b, *_ in YEAR_BANDS], None),
+    ("living_area_m2", "Living area", list(range(40, 401, 10)), "about {} m²"),
+    ("building_type", "Building type", ["detached", "semi_detached", "terraced", "apartment"], NAMES),
+    ("renovation", "Insulation / renovation", ["unrenovated", "partially", "fully"], NAMES),
+    ("heat_distribution", "Heating surfaces", ["radiators", "underfloor", "mixed"], NAMES),
+    ("fuel_type", "Fuel", ["gas", "lpg", "oil", "district", "electric"], NAMES),
+    ("annual_fuel_kwh", "Yearly use", list(range(2000, 60001, 1000)), "{:,} kWh"),       # fuel isn't oil
+    ("annual_fuel_liters", "Yearly use", list(range(500, 6001, 100)), "{:,} litres"),    # fuel is oil
+    ("occupants", "People", list(range(1, 9)), "{}"),
+    ("rooms", "Rooms", list(range(1, 21)), "{}"),
+    ("radiator_count", "Radiators", list(range(1, 31)), "{}"),
+    ("radiator_size", "Radiator size", ["small", "medium", "large"], "{}"),
+    ("dhw_by_boiler", "Hot water from the boiler", ["yes", "no"], "{}"),
 ]
-FORM_NUM = {"build_year": dict(min_value=1850, max_value=2026, step=1),
-            "living_area_m2": dict(min_value=0.0, step=5.0, format="%.0f"),
-            "use_value": dict(min_value=0.0, step=500.0, format="%.0f"),
-            "occupants": dict(min_value=0, max_value=30, step=1), "rooms": dict(min_value=0, max_value=60, step=1),
-            "radiator_count": dict(min_value=0, max_value=80, step=1)}
-FORM_EXAMPLE = {"build_year": 1972, "living_area_m2": 140.0, "building_type": "terraced", "renovation": "partially",
-                "heat_distribution": "radiators", "fuel_type": "gas", "use_value": 18000.0, "use_unit": "kWh",
-                "occupants": 3, "radiator_count": 10, "radiator_size": "large", "dhw_by_boiler": "yes"}
-FORM_FIELDS = ("build_year", "living_area_m2", "building_type", "renovation", "heat_distribution", "fuel_type",
-               "annual_fuel_kwh", "annual_fuel_liters", "occupants", "rooms", "radiator_count", "radiator_size",
-               "dhw_by_boiler")
+FORM_EXAMPLE = {"build_year": "1960–1978", "living_area_m2": 140, "building_type": "terraced", "renovation": "partially",
+                "heat_distribution": "radiators", "fuel_type": "gas", "annual_fuel_kwh": 18000, "occupants": 3,
+                "radiator_count": 10, "radiator_size": "large", "dhw_by_boiler": "yes"}
+INT_FIELDS = ("occupants", "rooms", "radiator_count")
+FLOAT_FIELDS = ("living_area_m2", "annual_fuel_kwh", "annual_fuel_liters")
+
+
+def form_text(f: str, v) -> str:
+    """Option → what the owner reads."""
+    if v == DK or v is None:
+        return DK
+    fmt = next((n for x, _, _, n in FORM if x == f), None)
+    if isinstance(fmt, dict):
+        return fmt.get(v, str(v))
+    try:
+        return (fmt or "{}").format(v)
+    except (ValueError, TypeError):
+        return str(v)
+
+
+def form_rows(fuel) -> list:
+    """Page-1 rows; the yearly-use row switches between kWh and litres with the fuel."""
+    skip = "annual_fuel_kwh" if fuel == "oil" else "annual_fuel_liters"
+    return [row for row in FORM if row[0] != skip]
 
 
 def src_label(src: str | None) -> str:
-    """Display name of a source: the form's internal merge source shows as "form"."""
-    return "form" if src == FORM_MERGE_SRC and st.session_state.get("form") else (src or "")
+    """Display name of a source: the form's internal merge source shows as "form", the free text as "text"."""
+    return {FORM_MERGE_SRC: "form", TEXT_MERGE_SRC: "text", "confirmed": "you"}.get(src, src or "")
 
 
-def _reseed_fix():
-    ss = st.session_state
-    for f, *_ in FIX:                           # unconfirmed step-4 fields reseed from the new value
-        if f not in ss.get("confirmed", {}):
-            ss.pop(f"fix_{f}", None)
-
-
-def _form_targets(f: str) -> list[str]:
-    return ["annual_fuel_kwh", "annual_fuel_liters"] if f in ("use_value", "use_unit") else [f]
+def value_text(h: House, f: str, v=None, src: str | None = None) -> str:
+    """A House value for the screens; a form year shows its band, never the representative year."""
+    v = getattr(h, f) if v is None else v
+    src = src or h.source.get(f)
+    if f == "build_year" and src in (FORM_MERGE_SRC, "confirmed"):
+        ev = h.evidence.get("build_year", "")
+        band = ev[5:] if ev.startswith("band ") else None
+        if src == FORM_MERGE_SRC or (band and year_band(v) == band):
+            return band or year_band(v) or str(v)
+    if isinstance(v, bool):
+        return "yes" if v else "no"
+    if f in ("annual_fuel_kwh", "kwh_printed"):
+        return f"{v:,.0f} kWh"
+    if f == "annual_fuel_liters":
+        return f"{v:,.0f} litres"
+    if f == "living_area_m2":
+        return f"{v:.0f} m²"
+    if isinstance(v, str):
+        return NAMES.get(v, v).replace("_", " ")
+    return str(v)
 
 
 def form_changed(f: str):
     ss = st.session_state
     v = ss.get(f"pf_{f}")
-    if v is None or v == DK or (v == 0 and f != "use_unit"):   # empty (or 0) = don't know
+    if v is None or v == DK:                    # "Don't know" = not answered
         ss.form.pop(f, None)
     else:
         ss.form[f] = v
-    for t in _form_targets(f):                  # a new form answer beats an older step-4 answer for that field
-        ss.confirmed.pop(t, None)
-        ss.cleared.discard(t)
-        ss.pop(f"fix_{t}", None)
-    _reseed_fix()
-
-
-def _form_default(f: str, opts):
-    return st.session_state.form.get(f, ("kWh" if f == "use_unit" else DK) if opts else None)
+    ss.confirmed.pop(f, None)                   # a new form answer beats an older conflict answer for that field
+    if f == "fuel_type":                        # yearly use is kWh or litres by fuel: drop the one in the wrong unit
+        drop = "annual_fuel_kwh" if v == "oil" else "annual_fuel_liters"
+        ss.form.pop(drop, None)
+        ss.pop(f"pf_{drop}", None)
 
 
 def form_fill_example():
     ss = st.session_state
     ss.form = dict(FORM_EXAMPLE)
-    for f, _, opts, _ in FORM:
-        ss[f"pf_{f}"] = _form_default(f, opts)
-    for f in FORM_FIELDS:
+    for f, *_ in FORM:
+        ss[f"pf_{f}"] = ss.form.get(f, DK)
         ss.confirmed.pop(f, None)
-        ss.cleared.discard(f)
-    _reseed_fix()
 
 
 def form_house() -> House | None:
     """Page-1 answers → House (source FORM_MERGE_SRC, confidence 0.9). None when nothing is filled."""
     fm = st.session_state.get("form") or {}
-    vals = {}
-    for f in ("build_year", "occupants", "rooms", "radiator_count"):
+    vals, ev = {}, {}
+    if fm.get("build_year") in BAND_YEAR:
+        vals["build_year"] = BAND_YEAR[fm["build_year"]]
+        ev["build_year"] = f"band {fm['build_year']}"
+    for f in INT_FIELDS:
         if fm.get(f) is not None:
             vals[f] = int(fm[f])
-    if fm.get("living_area_m2") is not None:
-        vals["living_area_m2"] = float(fm["living_area_m2"])
+    for f in FLOAT_FIELDS:
+        if fm.get(f) is not None:
+            vals[f] = float(fm[f])
     for f in ("building_type", "renovation", "heat_distribution", "fuel_type", "radiator_size"):
         if fm.get(f) not in (None, DK):
             vals[f] = fm[f]
     if fm.get("dhw_by_boiler") in ("yes", "no"):
         vals["dhw_by_boiler"] = fm["dhw_by_boiler"] == "yes"
-    if fm.get("use_value"):
-        vals["annual_fuel_liters" if fm.get("use_unit") == "litres" else "annual_fuel_kwh"] = float(fm["use_value"])
+    if fm.get("fuel_type") == "oil":            # stale kWh answer from before the fuel switch
+        vals.pop("annual_fuel_kwh", None)
+    elif "annual_fuel_liters" in vals:
+        vals.pop("annual_fuel_liters")
     if not vals:
         return None
     h = House(**vals)
     h.source = {f: FORM_MERGE_SRC for f in vals}
     h.confidence = {f: 0.9 for f in vals}
+    h.evidence = ev
     return h
 
 
-def form_page():
+def form_page(h: House):
     ss = st.session_state
-    st.markdown("## Tell us about your house")
+    st.markdown("## Your house")
     st.caption("A few facts. 'Don't know' is fine.")
     st.button("Fill with the example", on_click=form_fill_example)
-    cols = None
-    for i, (f, label, opts, names) in enumerate(FORM):
-        if i % 2 == 0:                           # one row per pair: on a phone the rows stack in reading order
-            cols = st.columns(2)
-        key, col = f"pf_{f}", cols[i % 2]
+    for f, label, opts, _ in form_rows(ss.form.get("fuel_type")):
+        key = f"pf_{f}"
         if key not in ss:                        # seed once from the stored answers (widget state is dropped off-page)
-            ss[key] = _form_default(f, opts)
-        if opts:
-            choices = opts if f == "use_unit" else [DK] + opts
-            col.selectbox(label, choices, key=key, on_change=form_changed, args=(f,),
-                          format_func=lambda v, n=names: (n or {}).get(v, v))
-        else:
-            col.number_input(label, value=None, key=key, on_change=form_changed, args=(f,),
-                             help="empty = don't know", **FORM_NUM[f])
+            ss[key] = ss.form.get(f, DK)
+        c1, c2, c3 = st.columns([2, 3, 1.3])
+        c1.markdown(label)
+        c2.selectbox(label, [DK] + opts, key=key, on_change=form_changed, args=(f,), label_visibility="collapsed",
+                     format_func=lambda v, x=f: form_text(x, v))
+        src, v = h.source.get(f), getattr(h, f)
+        if v is None:
+            tag = "—"
+        elif src == FORM_MERGE_SRC:
+            tag = "form"
+        else:                                    # filled (or overruled) by the bill, photo, text or a conflict answer
+            tag = f"{src_label(src)} · {value_text(h, f)}"
+        html(f'<span class="pill">{esc(tag)}</span>', c3)
 
 
 def home_house() -> House:
+    """Free text first (lowest), then the form over it, then photo and bill reads, then conflict answers."""
     ss = st.session_state
-    pieces = [House.model_validate_json(j) for j in ss.reads.values()]
+    pieces = [House.model_validate_json(ss.reads[s]) for s in ("text",) if ss.reads.get(s)]
     fh = form_house()
-    h = reduce(X.merge, ([fh] if fh else []) + pieces, House(building_id="Homeowner"))
-    conf = House(building_id="Homeowner", **ss.confirmed)
-    conf.source = {f: "confirmed" for f in ss.confirmed}
-    conf.confidence = {f: 0.9 for f in ss.confirmed}
-    h = X.merge(h, conf)
-    for f in ss.get("cleared", set()):          # "don't know" in step 4 wipes what was read
-        setattr(h, f, None)
-        h.source.pop(f, None)
-        h.confidence.pop(f, None)
+    pieces += [fh] if fh else []
+    pieces += [House.model_validate_json(j) for s, j in ss.reads.items() if s != "text"]
+    h = reduce(X.merge, pieces, House(building_id="Homeowner"))
+    if ss.confirmed:
+        conf = House(building_id="Homeowner", **ss.confirmed)
+        conf.source = {f: "confirmed" for f in ss.confirmed}
+        conf.confidence = {f: 0.9 for f in ss.confirmed}
+        h = X.merge(h, conf)
+    band = (fh.evidence.get("build_year", "")[5:] if fh else "")
+    if band:                                     # an exact year inside the form's band is not a disagreement
+        h.conflicts = [c for c in h.conflicts if c["field"] != "build_year"
+                       or any(year_band(v) != band for v in c["values"].values())]
     return h
 
 
@@ -1146,7 +1189,8 @@ READER = {"module": "Read by the module", "python": "Read by the fallback reader
 
 
 def do_read(slot: str, data: bytes, mime: str, mission: str):
-    """Radiator photo and bill go through orchestrator.py (module first, Python reader as fallback)."""
+    """Radiator photo and bill go through orchestrator.py (module first, Python reader as fallback).
+    The optional free text goes to the LLM parser (extract.py, cached), only when the owner presses "Read it"."""
     ss = st.session_state
     ss.setdefault("readers", {})
     with st.spinner("Reading…"):
@@ -1162,8 +1206,9 @@ def do_read(slot: str, data: bytes, mime: str, mission: str):
         if h is None:
             st.warning(f"We couldn't read that ({how}). You can skip this step.")
             return
+        if mission == "house_text":              # below the form, bill and photo: the text only fills gaps
+            h.source = {f: TEXT_MERGE_SRC for f in h.source}
         ss.reads[slot], ss.readers[slot] = h.model_dump_json(), how
-    _reseed_fix()
 
 
 def read_upload(up, slot: str, mission: str):
@@ -1175,38 +1220,12 @@ def read_upload(up, slot: str, mission: str):
         do_read(slot, up.getvalue(), up.type or "image/jpeg", mission)
 
 
-FLOAT_FIELDS = ("living_area_m2", "annual_fuel_kwh")
-
-
-def fix_changed(f: str):
-    ss = st.session_state
-    v = ss.get(f"fix_{f}")
-    if v is None or v == "don't know" or v == 0:   # empty (or 0) = don't know
-        ss.confirmed.pop(f, None)
-        ss.cleared.add(f)
-    else:
-        ss.confirmed[f] = v
-        ss.cleared.discard(f)
-
-
 def conflict_picked(f: str, vals: list):
     ss = st.session_state
     i = ss.get(f"q_{f}")
     if i is None or i >= len(vals):             # "don't know" or nothing
         return
-    v = vals[i]
-    ss.confirmed[f] = v
-    ss.cleared.discard(f)
-    fix = {x: o for x, _, o in FIX}
-    if f not in fix:
-        return
-    if fix[f]:
-        ss[f"fix_{f}"] = v if v in fix[f] else "don't know"
-    else:
-        try:
-            ss[f"fix_{f}"] = float(v) if f in FLOAT_FIELDS else int(v)
-        except (TypeError, ValueError):
-            ss.pop(f"fix_{f}", None)
+    ss.confirmed[f] = vals[i]
 
 
 def show_read(slot: str):
@@ -1218,7 +1237,7 @@ def show_read(slot: str):
     if found:
         html('<p class="ok">✓ We read</p>' + found)
     how = (st.session_state.get("readers") or {}).get(slot)
-    if how in READER:
+    if how in READER and slot != "text":
         st.caption(READER[how])
     if h.evidence:
         with st.expander("Why?"):
@@ -1240,12 +1259,66 @@ def nav(step: int, can_skip: bool) -> str | None:
     return act
 
 
+def text_changed():
+    st.session_state.house_text_val = st.session_state.get("house_text_in", "")
+
+
+def use_example_text():
+    ss = st.session_state
+    ss.house_text_val = ss.house_text_in = (ROOT / "assets/demo/house_persona_en.txt").read_text(encoding="utf-8").strip()
+
+
+def conflict_questions(h: House) -> int:
+    """Form vs bill/photo/text disagreements, at most 2. Returns how many were asked."""
+    ss, asked = st.session_state, 0
+    for c in h.conflicts:
+        if c["field"] in ss.confirmed or asked >= 2:
+            continue
+        (sa, va), (sb, vb) = list(c["values"].items())[:2]
+        ta, tb = value_text(h, c["field"], va, sa), value_text(h, c["field"], vb, sb)
+        labels = [ta, tb, "don't know"]
+        st.radio(f"Your {src_label(sa)} says {ta}, your {src_label(sb)} says {tb}. Which one is it?", [0, 1, 2],
+                 format_func=lambda i, lb=labels: lb[i], index=None, key=f"q_{c['field']}",
+                 on_change=conflict_picked, args=(c["field"], [va, vb]))
+        asked += 1
+    return asked
+
+
+def text_page(h: House):
+    ss = st.session_state
+    st.markdown("#### Before your answer")
+    asked = conflict_questions(h)
+    try:
+        q = _eng_attr("next_question")(h) if _eng_attr("next_question") else None
+    except Exception:
+        q = None
+    if q and asked < 2:
+        st.info(q)
+    elif not asked:
+        html('<p class="ok">✓ No questions for you</p>')
+    st.markdown("## Anything else? (optional)")
+    st.caption("Optional. Tell us anything the form missed — we only read it, "
+               "the numbers come from the form and your bill.")
+    st.button("Use the example text", on_click=use_example_text)
+    if "house_text_in" not in ss:
+        ss.house_text_in = ss.get("house_text_val", "")
+    txt = st.text_area("Anything else", key="house_text_in", on_change=text_changed, height=130,
+                       label_visibility="collapsed", placeholder="e.g. new windows in 2015, a wood stove in winter…")
+    if st.button("Read it", disabled=not txt.strip()):
+        data = txt.strip().encode("utf-8")
+        tag = hashlib.sha256(data).hexdigest()[:16]
+        if ss.get("tag_text") != tag:            # never read the same text twice
+            ss["tag_text"] = tag
+            do_read("text", data, "text/plain", "house_text")
+            st.rerun()
+    show_read("text")
+
+
 def tab_homeowner():
     ss = st.session_state
     ss.setdefault("step", 1)
     ss.setdefault("reads", {})
     ss.setdefault("confirmed", {})
-    ss.setdefault("cleared", set())
     ss.setdefault("form", {})
     ss.setdefault("readers", {})
     h = home_house()
@@ -1256,7 +1329,7 @@ def tab_homeowner():
                  + f'</div><span class="muted">{ss.step} of 4</span>')
         act = None
         if ss.step == 1:
-            form_page()
+            form_page(h)
             act = nav(1, False)
         elif ss.step == 2:
             st.markdown("## Your biggest radiator")
@@ -1284,52 +1357,11 @@ def tab_homeowner():
             st.caption("Only the numbers are kept.")
             act = nav(3, True)
         elif ss.step == 4:
-            st.markdown("## Is this right?")
-            st.caption("Tap to fix.")
-            for f, label, opts in FIX:                # `confirmed` is written only by on_change callbacks
-                v, key = getattr(h, f), f"fix_{f}"
-                c1, c2, c3 = st.columns([2, 3, 1])
-                c1.markdown(label)
-                if opts:
-                    choices = ["don't know"] + opts
-                    if key not in ss:
-                        ss[key] = v if v in choices else "don't know"
-                    c2.selectbox(label, choices, key=key, label_visibility="collapsed", on_change=fix_changed, args=(f,))
-                elif f in FLOAT_FIELDS:
-                    if key not in ss:
-                        ss[key] = None if v is None else float(v)
-                    c2.number_input(label, min_value=0.0, value=None, step=1.0 if f == "living_area_m2" else 100.0, format="%.0f",
-                                    key=key, label_visibility="collapsed", help="empty = don't know",
-                                    on_change=fix_changed, args=(f,))
-                else:
-                    if key not in ss:
-                        ss[key] = None if v is None else int(v)
-                    c2.number_input(label, min_value=0, value=None, step=1, key=key, label_visibility="collapsed",
-                                    help="empty = don't know", on_change=fix_changed, args=(f,))
-                html(f'<span class="pill">{src_label(h.source.get(f)) or "missing"}</span>', c3)
-            asked = 0
-            for c in h.conflicts:
-                if c["field"] in ss.confirmed or asked >= 2:
-                    continue
-                (sa, va), (sb, vb) = list(c["values"].items())[:2]
-                sa, sb = src_label(sa), src_label(sb)
-                labels = [str(va), str(vb), "don't know"]
-                st.radio(f"Your {sa} says {va}, your {sb} says {vb}. Which one is it?", [0, 1, 2],
-                         format_func=lambda i, lb=labels: lb[i], index=None, key=f"q_{c['field']}",
-                         on_change=conflict_picked, args=(c["field"], [va, vb]))
-                asked += 1
-            try:
-                q = _eng_attr("next_question")(home_house()) if _eng_attr("next_question") else None
-            except Exception:
-                q = None
-            if q and asked < 2:
-                st.info(q)
-            elif not asked:
-                html('<p class="ok">✓ No questions for you</p>')
-            act = nav(4, False)
+            text_page(home_house())                  # a read in this run happened after the first merge
+            act = nav(4, True)
         else:
             if st.button("Change answers"):
-                ss.step = 4
+                ss.step = 1
                 st.rerun()
             r = evaluate(h)
             answer_card(h, r, "home")
@@ -1343,24 +1375,17 @@ def tab_homeowner():
             st.rerun()
     with right:
         h = home_house()                              # reads in this run happened after the first merge
-        html('<div class="card"><b>What we know so far</b> <span class="muted">tap to fix</span></div>')
-        fmts = {**dict(CHIPS), "renovation": "{}", "radiator_count": "{}", "radiator_size": "{}", "occupants": "{}",
-                "kwh_printed": "{:,.0f} kWh"}
-        fmts.update({"annual_fuel_liters": "{:,.0f} litres", "rooms": "{}",
-                     "dhw_by_boiler": "yes" if h.dhw_by_boiler else "no"})
-        extra = [("building_type", "Building type", None), ("annual_fuel_liters", "Yearly use (litres)", None),
-                 ("rooms", "Rooms", None), ("dhw_by_boiler", "Hot water from the boiler", None),
-                 ("pipe_system", "Pipes", None), ("kwh_printed", "Bill kWh", None)]
-        for f, label, _ in FIX + extra:
+        html('<div class="card"><b>What we know so far</b></div>')
+        seen = set()
+        rows = [(f, lb) for f, lb, *_ in FORM] + [("pipe_system", "Pipes"), ("kwh_printed", "Bill kWh")]
+        for f, label in rows:
             v = getattr(h, f)
-            if v is not None:
-                try:
-                    s = fmts.get(f, "{}").format(v)
-                except (ValueError, TypeError):
-                    s = str(v)
-                c1, c2 = st.columns([3, 1])
-                c1.markdown(f"{label}: **{s.replace('_', ' ')}**")
-                html(f'<span class="pill">{src_label(h.source.get(f))}</span>', c2)
+            if v is None or f in seen:
+                continue
+            seen.add(f)
+            c1, c2 = st.columns([3, 1])
+            c1.markdown(f"{label}: **{value_text(h, f)}**")
+            html(f'<span class="pill">{esc(src_label(h.source.get(f)))}</span>', c2)
 
 
 def request_subject(r: Result) -> str:
