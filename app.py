@@ -448,7 +448,48 @@ def request_panel(h: House, r: Result, key: str):
 
 
 def tab_installer():
-    st.info("Installer sheet: Task 8.")
+    opts = {bid: h for bid, h, _ in buildings()}
+    if st.session_state.get("reads"):
+        opts["Homeowner house"] = home_house()
+    left, right = st.columns([1, 3])
+    sel = left.radio("Leads", list(opts), index=len(opts) - 1)
+    h = opts[sel]
+    r = evaluate(h)
+    with right:
+        if r is None:
+            st.info(f"Engine not ready yet ({ENGINE_ERR or 'no result'}).")
+            return
+        st.markdown(f"### {sel} · {h.building_type or ''} {h.build_year or ''} · {h.living_area_m2 or 0:.0f} m² · {h.fuel_type or ''}")
+        html(f'<span class="chip" style="background:{COL[r.best_color]};color:{"#14213D" if r.best_color == "yellow" else "#fff"}">'
+             f'{VISIT.get(r.visit_type, "–")}</span>')
+        st.markdown(r.reason)
+        html(f'<span class="chip">Load {kw(r.heat_load_kw.p50)} (bill {kw(r.heat_load_bill_kw.p50)})</span>'
+             f'<span class="chip">Water {t_range(r.required_flow_temp_c)}</span>'
+             f'<span class="chip">{h.radiator_count or "?"} radiators, size {h.radiator_size or "unknown"}</span>')
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.markdown("**Path to yellow**")
+            for p in r.path_to_yellow or ["–"]:
+                st.markdown(f"- {p}")
+        with c2:
+            st.markdown("**Bring**")
+            rs = r.parts.radiators_to_swap
+            st.markdown(f"- Radiators to swap: {f'{rs[1]} ({rs[0]}–{rs[2]})' if rs else '–'}")
+            if r.parts.radiators_note:
+                st.caption(r.parts.radiators_note)
+            st.markdown(f"- Valves: {r.parts.valves if r.parts.valves is not None else 'none documented'}")
+            st.markdown(f"- Hydraulic balancing: {r.parts.balancing or '–'}")
+        with c3:
+            st.markdown("**Check on site**")
+            for c in r.site_flags + r.installer_checklist:
+                st.markdown(f"- {c}")
+        missing = [f for f in ("build_year", "living_area_m2", "annual_fuel_kwh", "radiator_count", "radiator_size")
+                   if getattr(h, f) is None]
+        if missing:
+            st.caption("Missing: " + ", ".join(m.replace("_", " ") for m in missing))
+        with st.expander("How we got this"):
+            rechenweg(r)
+        request_panel(h, r, f"inst_{sel}")
 
 
 top_l, top_r = st.columns([4, 1])
