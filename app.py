@@ -2117,7 +2117,7 @@ html,body{margin:0;background:transparent;color:#14213D;font-family:Inter,system
 #err{display:none;position:absolute;inset:40% 8%;text-align:center;color:#4A5565;font-size:13px}
 canvas{display:block}
 </style></head><body><div id="wrap"><div id="scene"></div><div id="status">Your home</div>
-<div id="help">Drag to turn · scroll to zoom · illustration</div><div id="err">3D view unavailable (offline).</div></div>
+<div id="help">Drag to turn · illustration</div><div id="err">3D view unavailable (offline).</div></div>
 <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"}}</script>
 <script type="module">
 const active=__STOP__;
@@ -2131,7 +2131,8 @@ try{
  const camera=new THREE.PerspectiveCamera(38,root.clientWidth/root.clientHeight,.1,100);
  const renderer=new THREE.WebGLRenderer({antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,2));
  renderer.setSize(root.clientWidth,root.clientHeight);renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;root.appendChild(renderer.domElement);
- const controls=new OrbitControls(camera,renderer.domElement);controls.enableDamping=true;controls.maxPolarAngle=Math.PI*.48;controls.minDistance=9;controls.maxDistance=30;
+ const controls=new OrbitControls(camera,renderer.domElement);controls.enableDamping=true;controls.maxPolarAngle=Math.PI*.48;controls.enableZoom=false;controls.enablePan=false;
+ const touch=matchMedia('(pointer: coarse)').matches;if(touch){controls.enabled=false;controls.autoRotate=true;controls.autoRotateSpeed=.6;renderer.domElement.style.touchAction='pan-y';document.getElementById('help').textContent='Illustration';}
  scene.add(new THREE.HemisphereLight(0xe9f5ff,0x59634f,2.1));const sun=new THREE.DirectionalLight(0xfff0d7,2.6);sun.position.set(8,14,9);sun.castShadow=true;scene.add(sun);
  const mat=(color,roughness=.85,transparent=false,opacity=1)=>new THREE.MeshStandardMaterial({color,roughness,transparent,opacity,side:THREE.DoubleSide});
  const M={wall:mat(0xf1e7d5),inner:mat(0xd9c8ab),floor:mat(0xb78657),floor2:mat(0xcbb99a),glass:mat(0x80c7d9,.35,true,.65),roof:mat(0x556d7b,.8,true,.26),white:mat(0xf7f9f5),rad:mat(0xe4e9e8,.45),pipe:mat(0xb87333,.5),wood:mat(0x795239),grass:mat(0x92b879),dark:mat(0x304451),unit:mat(0x5d7783),electric:mat(0xd8d9d4),paper:mat(0xfff6d3)};
@@ -2166,7 +2167,7 @@ try{
   notes:[[0,3.0,0],[-4,8,17]],answer:[[2.2,2.2,0.5],[5,6,15.5]]}[active]||[[0,2.4,0],[3.5,7,16.5]];
  const tgt=new THREE.Vector3(...V[0]);camera.position.copy(tgt.clone().add(new THREE.Vector3(...V[1])));controls.target.copy(tgt);
  new ResizeObserver(()=>{camera.aspect=root.clientWidth/root.clientHeight;camera.updateProjectionMatrix();renderer.setSize(root.clientWidth,root.clientHeight)}).observe(root);
- (function loop(){requestAnimationFrame(loop);const s=1+.11*Math.sin(performance.now()*.004);marker.scale.setScalar(s);ring.scale.setScalar(s);controls.update();renderer.render(scene,camera)})();
+ (function loop(){requestAnimationFrame(loop);if(document.hidden)return;const s=1+.11*Math.sin(performance.now()*.004);marker.scale.setScalar(s);ring.scale.setScalar(s);controls.update();renderer.render(scene,camera)})();
 }catch(e){document.getElementById('err').style.display='block';}
 </script></body></html>"""
 
