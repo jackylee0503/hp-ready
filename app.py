@@ -15,6 +15,12 @@ import extract as X
 from loader import load_buildings
 from schema import DEFAULT, House, Result
 
+try:
+    from schema import check_result
+except ImportError:                          # older schema.py: no contract checker
+    def check_result(h, r):
+        return []
+
 st.set_page_config(page_title="HP-Ready", page_icon="🔥", layout="wide")
 
 try:
@@ -100,13 +106,20 @@ def _run(house_json: str) -> str:
     return r.model_dump_json()
 
 
-def evaluate(h: House) -> Result | None:
+ENGINE_ERRS: dict[str, str] = {}               # building id -> last evaluate error (shown small in Evaluation)
+
+
+def evaluate(h: House, quiet: bool = False) -> Result | None:
     if engine is None:
         return None
     try:
-        return Result.model_validate_json(_run(h.model_dump_json()))
+        r = Result.model_validate_json(_run(h.model_dump_json()))
+        ENGINE_ERRS.pop(str(h.building_id), None)
+        return r
     except Exception as e:
-        st.caption(f"Engine error for {h.building_id}: {e}")
+        ENGINE_ERRS[str(h.building_id)] = str(e)
+        if not quiet:
+            st.caption(f"Engine error for {h.building_id}: {e}")
         return None
 
 # ---------------------------------------------------------------- formatting
@@ -378,10 +391,35 @@ def _contradiction_src(h: House, c) -> str:
     return "Building data"
 
 
+# Fallback when neither r.always_checks nor engine.ALWAYS_CHECKS exists (engine wording, used to filter the checklist).
+DEFAULT_ALWAYS_CHECKS = ["Exact heating load (DIN EN 12831) and room-by-room radiator sizing",
+                         "Electrical capacity and meter cabinet", "Hydraulics and hydraulic balancing",
+                         "Outdoor-unit position, sound distance and permits"]
+
+
+def always_checks(r: Result | None) -> list[str]:
+    """Checks done at every visit: r.always_checks first, else engine.ALWAYS_CHECKS, else the spec defaults."""
+    if r is not None and r.always_checks:
+        return list(r.always_checks)
+    return list(getattr(engine, "ALWAYS_CHECKS", None) or DEFAULT_ALWAYS_CHECKS)
+
+
+FLAG_SRC = {"notes": "Notes", "area_rooms": "Area vs. room count", "not_documented": "Not documented",
+            "data": "Building data", "site": "Site"}
+
+
 def house_flags(h: House, r: Result) -> list[dict]:
-    """Issues specific to this house: site flags + installer checklist minus engine.ALWAYS_CHECKS.
-    Same count in the Evaluation table and the Installer tab. Each item: {text, src}."""
-    always = set(getattr(engine, "ALWAYS_CHECKS", []) or [])
+    """Issues specific to this house. Single entry point for both tabs (same count). Each item: {text, src}.
+    Structured r.flags first; else parse site flags + installer checklist minus the always-checks."""
+    if r.flags:
+        return [{"text": clean_text(f.text),
+                 "src": bill_chip(h) if f.src == "bill" else FLAG_SRC.get(f.src, "Building data")} for f in r.flags]
+    return _house_flags_from_text(h, r)
+
+
+def _house_flags_from_text(h: House, r: Result) -> list[dict]:
+    """Fallback for engines that do not fill r.flags: parse the English checklist."""
+    always = set(always_checks(r))
     out = [{"text": clean_text(f), "src": "Site"} for f in r.site_flags]
     contra = list(r.contradictions)
     for item in r.installer_checklist:
@@ -742,9 +780,26 @@ def eval_detail(bid: str, h: House, ref: dict | None, r: Result) -> str:
             '</div></div>')
 
 
+def contract_lines(res) -> list[str]:
+    """One muted line per building whose Result breaks the UI contract (schema.check_result) or whose evaluate raised."""
+    out = []
+    for bid, h, _, r in res:
+        if r is None:
+            if bid in ENGINE_ERRS:
+                out.append(f"{bid}: no result, engine error ({ENGINE_ERRS[bid][:120]})")
+            continue
+        try:
+            probs = check_result(h, r)
+        except Exception as e:
+            probs = [f"check_result failed: {e}"]
+        if probs:
+            out.append(f"{bid}: " + "; ".join(probs))
+    return out
+
+
 def tab_evaluation():
     B = buildings()
-    res = [(bid, h, ref, evaluate(h)) for bid, h, ref in B]
+    res = [(bid, h, ref, evaluate(h, quiet=True)) for bid, h, ref in B]
     dev = [(bid, ref, r) for bid, _, ref, r in res if ref and r]
     n_dev = sum(1 for _, _, ref in B if ref)
     n_out = len(B) - n_dev
@@ -772,6 +827,8 @@ def tab_evaluation():
     st.session_state["eval_last"] = sel
     with table_slot:
         st.html(eval_table(res, sel))
+        for line in contract_lines(res):
+            st.caption(line)
 
     bid, h, ref, r = next(x for x in res if x[0] == sel)
     if r is None:
@@ -1093,8 +1150,15 @@ def installer_meta(h: House) -> str:
     return " · ".join(p for p in parts if p)
 
 
-def radiator_share(h: House) -> str:
-    """Mixed systems: share of the load on the radiator circuit (radiators / rooms), as the engine splits it."""
+def radiator_share(h: House, r: Result | None = None) -> str:
+    """Mixed systems: share of the load on the radiator circuit. r.radiators.share first, else radiators / rooms."""
+    rad = r.radiators if r is not None else None
+    if rad is not None and rad.share is not None:
+        if rad.share >= 1:
+            return ""
+        n = rad.count or h.radiator_count
+        how = f" ({n} radiators / {h.rooms} rooms)" if n and h.rooms else ""
+        return f" — the radiator circuit carries {rad.share:.0%} of the load{how}".replace("%", " %")
     if h.heat_distribution != "mixed" or not h.radiator_count or not h.rooms:
         return ""
     share = min(h.radiator_count / h.rooms, 1.0)
@@ -1102,19 +1166,75 @@ def radiator_share(h: House) -> str:
             f"{h.rooms} rooms)").replace("%", " %")
 
 
+def no_change_text(h: House, r: Result, have: float, need: float, margin_pct: float | None = None) -> str:
+    """'Radiators are rated X kW (at 75 °C); 55 °C needs …' + share phrase + tight-margin phrase."""
+    body = (f"Radiators are rated {have:.1f} kW (at 75 °C); 55 °C needs a rating of about {need:.1f} kW"
+            f"{radiator_share(h, r)}.")
+    if margin_pct is None and need:
+        margin_pct = (have - need) / need * 100
+    if margin_pct is not None and margin_pct < 5:
+        body += f" Tight margin ({margin_pct:.0f} %), so the real radiator sizes decide it."
+    return body
+
+
+def option_block(o, letter: str, rad) -> tuple[str, str] | None:
+    """One structured Option -> (title, body). Numbers from the engine, wording here."""
+    if o.kind == "radiators" and o.add_rated_kw_55 is not None:
+        a60 = o.add_rated_kw_60
+        tail = ("" if a60 is None else " 60 °C already works with today's radiators." if a60 <= 0
+                else f" About {a60:.1f} kW for 60 °C.")
+        now = o.rated_kw_today if o.rated_kw_today is not None else (rad.rated_kw if rad is not None else None)
+        today = f" Today: {now:.1f} kW." if now is not None else ""
+        return (f"Option {letter} · more radiator surface",
+                f"Add about {o.add_rated_kw_55:.1f} kW of rated radiator output for 55 °C.{tail}{today}")
+    if o.kind == "insulation" and o.loss_cut_pct is not None:
+        return (f"Option {letter} · cut heat loss",
+                f"About −{o.loss_cut_pct:.0f} % heat loss (insulation or windows) reaches 55 °C with today's radiators.")
+    if o.kind == "pipe_loop":
+        return ("Single-pipe loop", clean_text(o.note) or "Larger radiators at the end of the loop, a higher flow "
+                "temperature, or converting parts of the system.")
+    return None
+
+
+def what_it_takes_structured(h: House, r: Result) -> list[tuple[str, str]] | None:
+    """(title, body) blocks from r.options / r.radiators; None when the engine did not fill them."""
+    if not (r.options or r.radiators):
+        return None
+    rad = r.radiators
+    no_change = None
+    if (rad is not None and rad.rated_kw is not None and rad.needed_rated_kw_55 is not None
+            and rad.rated_kw >= rad.needed_rated_kw_55):
+        no_change = ("No radiator changes for 55 °C",
+                     no_change_text(h, r, rad.rated_kw, rad.needed_rated_kw_55, rad.margin_pct))
+    if r.best_color == "green" and no_change:
+        return [no_change]
+    out, letters = [], iter("ABCDEFG")
+    for o in r.options:
+        b = option_block(o, next(letters) if o.kind in ("radiators", "insulation") else "", rad)
+        if b:
+            out.append(b)
+    if not out:
+        if no_change:
+            return [no_change]
+        note = next((clean_text(o.note) for o in r.options if o.note), "")
+        if h.heat_distribution == "underfloor":
+            return [("Nothing to change", note or "Underfloor heating already runs at about 35–40 °C.")]
+        return [("Nothing to change", note)] if note else None
+    return ([no_change] if no_change else []) + out
+
+
 def what_it_takes(h: House, r: Result) -> list[tuple[str, str]]:
-    """(title, body) blocks from r.path_to_yellow. Titles come from what each line says, not from the building."""
+    """Structured r.options / r.radiators first; else (title, body) blocks parsed from r.path_to_yellow."""
+    structured = what_it_takes_structured(h, r)
+    if structured is not None:
+        return structured
     out, letters = [], iter("ABCDEFG")
     for line in r.path_to_yellow or []:
         s = clean_text(line)
         m = re.search(rf"give {_NUM} kW, about {_NUM} kW is needed", s)
         if s.lower().startswith("no change needed") and m:
             have, need = float(m.group(1)), float(m.group(2))
-            body = (f"Radiators are rated {have:.1f} kW (at 75 °C); 55 °C needs a rating of about {need:.1f} kW"
-                    f"{radiator_share(h)}.")
-            if need and (have - need) / need < 0.05:
-                body += f" Tight margin ({(have - need) / need:.0%}), so the real radiator sizes decide it.".replace("%", " %")
-            out.append(("No radiator changes for 55 °C", body))
+            out.append(("No radiator changes for 55 °C", no_change_text(h, r, have, need)))
             continue
         if s.lower().startswith("nothing to change"):
             out.append(("Nothing to change", clean_text(s.split(":", 1)[-1])))
@@ -1165,7 +1285,11 @@ def bring_rows(h: House, r: Result) -> tuple[list[tuple[str, str]], str]:
     if h.heat_distribution == "underfloor":
         cap = "Underfloor heating; attached radiators: check." if "attached" in note else ""
     else:
-        cap = "Radiator sizes unknown — assumed medium." if h.radiator_size is None else ""
+        rad = r.radiators
+        if rad is not None and rad.size_assumed:
+            cap = f"Radiator sizes unknown — assumed {rad.size_assumed}."
+        else:
+            cap = "Radiator sizes unknown — assumed medium." if h.radiator_size is None else ""
     return rows, cap
 
 
@@ -1395,7 +1519,7 @@ def tab_installer():
             st.html(installer_flags_html(installer_flags(h, r)))
             with st.container(key=f"stdchecks_{_lead_key(bid)}"):
                 st.html('<h2 style="margin:0;font-size:16px;font-weight:600;color:var(--ink)">Standard on-site checks</h2>')
-                for i, lab in enumerate(STANDARD_CHECKS):
+                for i, lab in enumerate(r.always_checks or STANDARD_CHECKS):
                     st.checkbox(lab, key=f"chk_{_lead_key(bid)}_{i}")
         st.html(sent_card(bid, h))
 
