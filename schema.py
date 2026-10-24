@@ -301,6 +301,40 @@ class NextStep(BaseModel):
     detail: str = ""
 
 
+# Structured fields (2026-10-24): the engine fills numbers and kinds, the app writes the sentences.
+# Optional for now: the app falls back to parsing the text fields above while they are empty.
+
+class Option(BaseModel):
+    """One way to reach 55 °C (step 6b). Numbers only; the app phrases it."""
+    kind: Literal["radiators", "insulation", "pipe_loop", "none"]
+    add_rated_kw_55: Optional[float] = None    # extra rated radiator output (75/65/20) needed for 55 °C
+    add_rated_kw_60: Optional[float] = None
+    rated_kw_today: Optional[float] = None
+    loss_cut_pct: Optional[float] = None       # heat-loss reduction that reaches 55 °C with today's radiators
+    note: str = ""                             # short extra in engine words, may stay empty
+
+
+class RadiatorSummary(BaseModel):
+    count: Optional[int] = None
+    size_assumed: Optional[RadiatorSize] = None    # set when the size was not documented
+    rated_kw: Optional[float] = None               # ΣΦ_n at 75/65/20 °C
+    needed_rated_kw_55: Optional[float] = None     # ΣΦ_n needed to manage at 55 °C
+    needed_rated_kw_60: Optional[float] = None
+    share: Optional[float] = None                  # fraction of the load on the radiator circuit (mixed systems)
+    margin_pct: Optional[float] = None             # (rated − needed_55) / needed_55 × 100
+
+
+FlagSource = Literal["notes", "bill", "area_rooms", "not_documented", "data", "site"]
+FlagKind = Literal["contradiction", "pipe", "radiators", "valves", "unused_area", "site", "other"]
+
+
+class Flag(BaseModel):
+    """A house-specific issue for the installer (never one of the always-checks)."""
+    text: str                                  # one sentence, no "Check on site:" prefix
+    src: FlagSource
+    kind: FlagKind = "other"
+
+
 class Result(BaseModel):
     building_id: Optional[str] = None
     # verdict
@@ -340,3 +374,45 @@ class Result(BaseModel):
     installer_checklist: list[str] = []
     next_photo: Optional[str] = None
     next_step: Optional[NextStep] = None
+    # structured (preferred by the app when filled)
+    options: list[Option] = []
+    radiators: Optional[RadiatorSummary] = None
+    flags: list[Flag] = []
+    always_checks: list[str] = []
+
+
+# ---------------------------------------------------------------- contract check
+
+UI_FIELDS = ("reason", "required_flow_temp_c", "heat_load_kw", "open_checks", "trace", "visit_type", "next_step")
+
+
+def check_result(h: "House", r: Result) -> list[str]:
+    """Problems that would show as '–' or nonsense on screen. Empty list = fine. Never raises."""
+    out: list[str] = []
+    try:
+        core = h.living_area_m2 is not None and h.build_year is not None
+        s = r.p_green + r.p_yellow + r.p_red
+        if core and abs(s - 1.0) > 0.02:
+            out.append(f"probabilities sum to {s:.2f}, not 1")
+        for name in ("required_flow_temp_c", "heat_load_kw", "heat_load_bill_kw"):
+            rg = getattr(r, name)
+            vals = [v for v in (rg.p10, rg.p50, rg.p90) if v is not None]
+            if vals != sorted(vals):
+                out.append(f"{name}: p10 ≤ p50 ≤ p90 broken ({rg.p10}, {rg.p50}, {rg.p90})")
+        if core:
+            for name in UI_FIELDS:
+                v = getattr(r, name)
+                if v in (None, "", []) or (isinstance(v, Range) and v.p50 is None):
+                    out.append(f"{name} empty")
+        if r.verdict_basis == "obstacle" and r.best_color != "red":
+            out.append("verdict_basis obstacle but colour is not red")
+        if r.best_color == "red" and r.verdict_basis == "cannot_tell_yet":
+            out.append("missing data must be yellow, not red")
+        if r.best_color != "green" and core and not (r.options or r.path_to_yellow):
+            out.append("not green but no options / path_to_yellow")
+        for f in r.flags:
+            if f.text.lower().startswith("check on site"):
+                out.append(f"flag text has a 'Check on site' prefix: {f.text[:40]}")
+    except Exception as e:                      # the checker itself must never break the app
+        out.append(f"check_result failed: {e}")
+    return out
