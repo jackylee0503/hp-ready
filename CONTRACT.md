@@ -2,9 +2,34 @@
 
 Status: **draft v2** (`schema.CONTRACT_VERSION = "2-draft"`, 2026-10-24). Owner: Junwoo (UI + architecture). Change it only together; bump `x-contract-version`. §0 is the contract any decision logic must meet; §1–§6 (v1) are **still accepted** and describe the transport, the inputs and the optional physics extras.
 
+## Pipeline (team split, 2026-10-24 afternoon)
+
+```
+Table (House) is filled by:
+  1/4 dropdowns + typed integers (homeowner)
+  2/4 radiator photo → ML module 1 "pipe_classifier": single-pipe vs two-pipe
+  3/4 bill (photo/PDF) → ML module 2 "bill_recognizer": OCR → raw bill numbers
+  4/4 optional free text → LLM parser, ONLY on "Read it", fills ONLY fields still empty after 1-3
+Then ML module 3 "calculation": finds internal contradictions + produces the Result → result screens
+```
+
+| # | Module (default file) | Request | Reply `data` | Schema | Examples |
+| --- | --- | --- | --- | --- | --- |
+| 1 | `pipe_classifier` (`modules/pipe_classifier.py`) | `{"file": {...}, "hint": {"build_year": int \| null}}` (hint optional) | `RadiatorObs`: `pipe_system` `"two_pipe"` \| `"single_pipe"` \| `null` (unsure), `confidence["pipe_system"]`, `evidence["pipe_system"]` (short reason), optional `panel_type` / `radiator_size`, `missing` / `retake_tip` when the photo is unusable | `contracts/pipe.schema.json` | `pipe_output_two_pipe.json`, `pipe_output_single_pipe.json`, `pipe_output_unknown.json` |
+| 2 | `bill_recognizer` (`modules/bill_recognizer.py`) | `{"file": {...}, "fuel_hint": "gas" \| null}` | `BillObs`: OCR or any method; raw numbers as printed; no conversion. Photo problems come back in its own `missing` / `retake_tip` | `contracts/bill.schema.json` | `bill_output_demo.json` |
+| 3 | `calculation` (`modules/calculation.py`) | `{"house": House, "n": 500, "seed": 0}` | `Result` (§0), including `contradictions` | `contracts/house.schema.json`, `contracts/result.schema.json` | `calc_input_B-04/B-05/form.json` → `calc_output_B-04/B-05.json` |
+
+**The LLM step (4/4) only fills blanks and never asks.** The page-4 free text is read by the LLM parser (`extract.py`, cached) only when the homeowner presses "Read it" (an explicit request). Its `House` carries `source = "notes_llm"`, the lowest merge rank, so it only fills fields still empty after the form, the photo and the bill. When it disagrees with a filled field, nothing is asked: the disagreement is dropped from `House.conflicts` and shown as one muted note under the "We read" chips, e.g. "Not used (already set): living area 140 m² (form says 150 m²)".
+
+**Contradictions vs conflicts.**
+- **Internal contradictions** (cross-field inconsistencies inside one House: bill vs area-age load, wood stove all winter, rooms vs area, LPG detail vs gas carrier, …) are **module 3's job**: `calculation` finds them and returns them in `Result.contradictions` (`{what, sources, trusted, why}`).
+- **Input conflicts** (the same field from two sources, e.g. the form says oil, the bill says gas) are asked to the homeowner by the UI **before** the calculation (page 4, at most two questions; form vs bill/photo only). The House arrives with the resolved values; `House.conflicts` (`{field, values: {source: value}, used}`) lists them for context only.
+
+**Fallback rule (Invariant 1): a fallback never calls the LLM by itself.** When module 1 or 2 is unavailable or fails, `orchestrator` falls back to `extract.extract(..., cache_only=True)`: the committed demo reads in `samples/cached_extract.json` keep working, a new photo/bill gives "couldn't read that, you can skip". `HP_LLM_FALLBACK=1` restores the live-LLM fallback on a cache miss. Under "We read" a muted line names the reader: "Read by the module" · "Read from the demo cache" · "Couldn't read". Module 3 falls back to `engine.py`, then `engine_tracer.py` (no LLM anywhere).
+
 ## §0 Contract v2 core (any logic)
 
-The `calculation` module may be physics, a trained model (GBM, GP, …), rules or a hybrid. The app renders **any** `Result` that fills the core below; everything else is optional.
+The `calculation` module (ML module 3) may be physics, a trained model (GBM, GP, …), rules or a hybrid. The app renders **any** `Result` that fills the core below; everything else is optional.
 
 **Required core** (`schema.check_result(h, r)` returns no warnings):
 
@@ -74,18 +99,13 @@ The Evaluation tab shows the same table behind the **"Compare logic"** toggle (o
 The Streamlit app stays the UI. `orchestrator.py` calls three **Python** modules in-process with a JSON-shaped request (a `dict`) and gets a JSON-shaped reply back (decision 2026-10-24: Python only, no Node):
 
 ```
-page-1 form ────────────────────────────────────────────────┐
-bill upload ──► image_validation ──► bill_recognizer ────────┼─► House ──► calculation ──► Result ──► 3 tabs
-radiator photo ──► image_validation ─────────────────────────┘
+1/4 page-1 form ─────────────────────────────────────────┐
+2/4 radiator photo ──► pipe_classifier ───────────────────┤
+3/4 bill photo/PDF ──► bill_recognizer ───────────────────┼─► House ──► (UI asks input conflicts) ──► calculation ──► Result ──► 3 tabs
+4/4 free text ("Read it" only) ──► LLM parser, blanks only┘
 ```
 
-The JSON shapes are the existing Python models in `schema.py`, exported as JSON Schema:
-
-| Module (default) | Request | Reply `data` | Schema | Examples |
-| --- | --- | --- | --- | --- |
-| `modules/bill_recognizer.py` | `{"file": {...}, "fuel_hint": "gas" \| null}` | `BillObs` | `contracts/bill.schema.json` | `contracts/examples/bill_output_demo.json` |
-| `modules/image_validation.py` | `{"file": {...}, "expected": "radiator" \| "bill" \| "exterior"}` | `ImageCheck` | `contracts/image_check.schema.json` | `image_check_ok.json`, `image_check_blurry.json` |
-| `modules/calculation.py` | `{"house": House, "n": 500, "seed": 0}` | `Result` | `contracts/house.schema.json`, `contracts/result.schema.json` | `calc_input_B-04/B-05/form.json` → `calc_output_B-04/B-05.json` |
+The JSON shapes are the existing Python models in `schema.py`, exported as JSON Schema (module table: "Pipeline" above).
 
 `file` is always `{"path": "<absolute path to a temp file>", "mime": "application/pdf" | "image/jpeg" | "image/png" | "image/webp"}`. The orchestrator writes the upload to a temp file and deletes it after the call; modules never get base64 or bytes.
 
@@ -101,7 +121,7 @@ The JSON shapes are the existing Python models in `schema.py`, exported as JSON 
 
 - `error.code`: `bad_input` (request malformed), `unreadable` (file can't be read), `unsupported` (mime not handled, or the module is still a skeleton), `internal` (bug). The orchestrator adds `missing` (module not importable or switched off).
 - **Probe:** `{"probe": True}` must be answered quickly. `ok: True` (data may be `None`) = ready; `error.code == "unsupported"` = not implemented yet, so the app uses its fallback. The skeletons flip this with `IMPLEMENTED = True`.
-- Time limits: image_validation 5 s, bill_recognizer 15 s, calculation 20 s. In-process there is no hard kill: a slower call still counts, but the orchestrator adds a warning (`took 21.0 s, over the 20 s limit`) and the UI blocks meanwhile, so stay under it. A raised exception, a reply that is not an envelope, or `data` that doesn't validate against the schema = failure; the UI then shows "couldn't read that, you can skip" (inputs) or falls back to `engine.py`, then `engine_tracer.py` (result), marked on screen.
+- Time limits: pipe_classifier 10 s, bill_recognizer 15 s, calculation 20 s. In-process there is no hard kill: a slower call still counts, but the orchestrator adds a warning (`took 21.0 s, over the 20 s limit`) and the UI blocks meanwhile, so stay under it. A raised exception, a reply that is not an envelope, or `data` that doesn't validate against the schema = failure; the UI then shows "couldn't read that, you can skip" (inputs) or falls back to `engine.py`, then `engine_tracer.py` (result), marked on screen.
 - No network calls, no storing files, deterministic (`calculation` uses `seed`).
 - **CLI for testing:** every module also runs as `python -m modules.<name> < request.json` (reads the request JSON on stdin, prints the reply JSON).
 
@@ -115,19 +135,22 @@ The JSON shapes are the existing Python models in `schema.py`, exported as JSON 
 
 ## 3. Module by module
 
-### bill_recognizer → `BillObs`
-Reads a gas/oil/LPG bill (PDF text, photo, screenshot) and returns **raw numbers as printed**: `bill_carrier`, `kwh_printed`, `m3`, `zustandszahl`, `brennwert`, `liters`, `period_start`, `period_end`, `bill_total_eur`, `monthly_advance_eur`, plus `confidence`, `evidence`, `missing` (`not_visible` | `blurry` | `ambiguous` | `wrong_object`), `retake_tip`.
+### 1 pipe_classifier → `RadiatorObs`
+Radiator photo → single-pipe vs two-pipe heating. Main output `pipe_system`: `"two_pipe"` | `"single_pipe"` | `null` when unsure (never a guess), with `confidence["pipe_system"]` and `evidence["pipe_system"]` (short reason, e.g. "H-block with side bypass port"). Optional `panel_type` (`"11"`/`"22"`/`"33"`) and `radiator_size` only if it can really tell.
+- Photo unusable (blurry, dark, not a radiator …): `ok: true`, `pipe_system: null`, `missing: {"pipe_system": "blurry" | "not_visible" | "ambiguous" | "wrong_object"}` and a one-sentence `retake_tip`. There is no separate image check.
+- `hint.build_year` (from the form, may be `null`) is context only; never copy it into the reply.
+- Test set: `data/pipe_photos/*`, installer-confirmed labels in `data/pipe_photos/labels.json` (06, 11 single-pipe; 05, 10 two-pipe; **07 must stay `null`**). Examples: `contracts/examples/pipe_output_two_pipe.json`, `pipe_output_single_pipe.json`, `pipe_output_unknown.json`.
+
+### 2 bill_recognizer → `BillObs`
+OCR or any method; raw numbers as printed; no conversion. Reads a gas/oil/LPG bill (PDF text, photo, screenshot) and returns **raw numbers as printed**: `bill_carrier`, `kwh_printed`, `m3`, `zustandszahl`, `brennwert`, `liters`, `period_start`, `period_end`, `bill_total_eur`, `monthly_advance_eur`, plus `confidence`, `evidence`, `missing` (`not_visible` | `blurry` | `ambiguous` | `wrong_object`), `retake_tip`.
 - **No conversion.** Don't turn m³ into kWh or scale the period to a year; `calculation` does that (fuel precedence: bill raw values → `annual_fuel_kwh` → `annual_fuel_liters × 10` → advance payment).
 - `fuel_hint` = the fuel the homeowner picked on the form (may be `None`); a hint only, never copy it into the reply.
 - Test input: `assets/demo/bill_demo_gas_2025.pdf` and `..._photo.jpg` (expected values in `assets/demo/README.md`: 18,002 kWh, 1,651 m³, Zustandszahl 0.9523, Brennwert 11.450, 2025-01-01 to 2025-12-31, €2,462.12).
 
-### image_validation → `ImageCheck`
-Says whether a photo is **usable**, not what it means: `usable`, `reason` (`ok` | `blurry` | `too_dark` | `too_bright` | `too_small` | `wrong_object` | `unreadable` | `unsupported_type`), `retake_tip` (one concrete sentence), `width_px`, `height_px`, `sharpness`, `brightness`.
-- Optional `radiator` (`RadiatorObs`: `panel_type`, `radiator_size`, `pipe_system`, …) only if the module can really tell; `pipe_system` stays `null` unless sure (organiser photo `07` must stay `null`).
-- Test inputs: `data/pipe_photos/*` (labels in `labels.json`), plus any blurred/dark photo.
+- Photo quality problems (blurry, cut off, not a bill) come back in its own `missing` / `retake_tip`; there is no separate image check.
 
-### calculation → `Result`
-Input `{"house": House}`. Output a `Result`; this replaces `engine.py`'s `evaluate` + `installer_brief`. **v2:** only the §0 core is required; the list below is the v1 physics shape, still accepted and used when present.
+### 3 calculation → `Result`
+Input `{"house": House}`. **Owns internal contradictions** (`Result.contradictions`, see "Contradictions vs conflicts" at the top); input conflicts arrive already resolved, listed in `House.conflicts` for context. Output a `Result`; this replaces `engine.py`'s `evaluate` + `installer_brief`. **v2:** only the §0 core is required; the list below is the v1 physics shape, still accepted and used when present.
 - The UI reads: `best_color`, `verdict_basis`, `boundary`, `reason`, `p_green/p_yellow/p_red`, `required_flow_temp_c`, `heat_load_kw`, `heat_load_bill_kw` (`{p10, p50, p90}`), `jaz_bucket`, `cost_now_eur`, `cost_hp_eur`, `saving_eur`, `contradictions`, `open_checks`, `trace`, `visit_type`, `parts`, `lead_score`, `next_step`, and the **structured** fields `options`, `radiators`, `flags`, `always_checks` (fill numbers and kinds; the UI writes the sentences).
 - Rules: CLAUDE.md "Engine" (fixed prices and JAZ, 55/60 °C bands, missing data → yellow `cannot_tell_yet`, never red).
 - Check against the Python engine: `contracts/examples/calc_output_B-04.json` / `B-05.json` are today's results for the same inputs.
@@ -149,7 +172,7 @@ The form fills these `House` fields with `confidence[field] = 0.9`: `build_year`
 
 - Earlier today page 1 briefly used year **bands** (stored as a representative year with `evidence["build_year"] = "band …"`). The app still understands that evidence; when you see it, treat the year as the band, not an exact year.
 
-- Later steps can overrule form values: the bill wins on fuel and yearly use, the radiator photo on radiator size and pipe system, a confirmed conflict answer on anything (`source[field] = "confirmed"`). The optional free text (page 4, LLM parser, only on demand) arrives as `source = "notes_llm"` and only fills fields the form left empty; disagreements are listed in `House.conflicts`.
+- Later steps can overrule form values: the bill wins on fuel and yearly use, the radiator photo on radiator size and pipe system, a confirmed conflict answer on anything (`source[field] = "confirmed"`). The optional free text (page 4, LLM parser, only on "Read it") arrives as `source = "notes_llm"` and only fills fields still empty after the form, photo and bill; its disagreements are **not** in `House.conflicts` and are never asked (muted "Not used (already set)" note instead).
 - Organiser buildings (`data/`) and `contracts/examples/calc_input_B-0x.json` carry exact years; `contracts/examples/calc_input_form.json` shows a form house.
 
 ## 5. Check your output
@@ -168,26 +191,28 @@ After a change to `schema.py`: `python schema.py --export-contracts` regenerates
 
 ```python
 REGISTRY = {"bill_recognizer": "modules.bill_recognizer:run",
-            "image_validation": "modules.image_validation:run",
+            "pipe_classifier": "modules.pipe_classifier:run",
             "calculation": "modules.calculation:run"}
 ```
 
-Each entry can be overridden without editing our code: `HP_MODULE_<NAME>="pkg.mod:func"`, e.g. `HP_MODULE_CALCULATION="ml.predict:run" streamlit run app.py`. Imports are lazy and reloaded when the file's mtime changes, so editing a module while Streamlit runs is picked up on the next click (the app's result cache key includes the module file times).
+Each entry can be overridden without editing our code: `HP_MODULE_<NAME>="pkg.mod:func"` (`HP_MODULE_PIPE_CLASSIFIER`, `HP_MODULE_BILL_RECOGNIZER`, `HP_MODULE_CALCULATION`), e.g. `HP_MODULE_CALCULATION="ml.predict:run" streamlit run app.py`. Imports are lazy and reloaded when the file's mtime changes, so editing a module while Streamlit runs is picked up on the next click (the app's result cache key includes the module file times).
 
 **Call order.**
 
 | Input / output | First | Then | Last |
 | --- | --- | --- | --- |
-| Bill (step 3) | `image_validation` (photos only; unusable → retake tip, stop) → `bill_recognizer` → `BillObs` → `extract.obs_to_house("bill")` | `extract.extract(..., "bill")` (cache / LLM, being phased out) | "couldn't read that, you can skip" |
-| Radiator photo (step 2) | `image_validation` (unusable → retake tip; `radiator` reading if present) | `extract.extract(..., "radiator")` | "couldn't read that, you can skip" |
+| Radiator photo (step 2) | `pipe_classifier` → `RadiatorObs` → `extract.obs_to_house("radiator")` (`orchestrator.classify_pipes`) | `extract.extract(..., "radiator", cache_only=True)` (demo cache; live LLM only with `HP_LLM_FALLBACK=1`) | "couldn't read that, you can skip" |
+| Bill (step 3) | `bill_recognizer` → `BillObs` → `extract.obs_to_house("bill")` (`orchestrator.recognize_bill`, no pre-check) | `extract.extract(..., "bill", cache_only=True)` (same rule) | "couldn't read that, you can skip" |
+| Free text (step 4) | LLM parser `extract.extract(..., "house_text")`, only on "Read it" (explicit request; cache first) | keyword reader | – |
 | Result (all tabs) | `calculation` | `engine.py` | `engine_tracer.py` |
 
 A module counts as **available** when it imports and its probe reply is not `unsupported` (cached per file time). The skeletons answer `unsupported`, so today the app runs entirely on the fallbacks.
 
-**On screen.** A result from `calculation` gets a small **"module calc"** chip (Evaluation, Installer) and "Computed by the calculation module." under the homeowner answer; the tracer keeps its "tracer" chip; `engine.py` shows nothing. Under "We read" a muted line says "Read by the module" or "Read by the fallback reader". When `calculation` is available but fails for a building, Evaluation prints a grey line: `B-05: calculation module failed (…), showing engine.py`.
+**On screen.** A result from `calculation` gets a small **"module calc"** chip (Evaluation, Installer) and "Computed by the calculation module." under the homeowner answer; the tracer keeps its "tracer" chip; `engine.py` shows nothing. Under "We read" a muted line says "Read by the module", "Read from the demo cache" or "Couldn't read" (with `HP_LLM_FALLBACK=1` also "Read by the AI fallback"). When `calculation` is available but fails for a building, Evaluation prints a grey line: `B-05: calculation module failed (…), showing engine.py`.
 
 **Switches.**
 - `HP_MODULES=0`: no module calls at all (the app behaves as before the orchestrator).
-- `HP_MODULES_ONLY=1`: no Python fallback for bill and radiator photo, so a failing module shows up as "couldn't read that" instead of being hidden.
+- `HP_MODULES_ONLY=1`: no fallback at all for bill and radiator photo (not even the demo cache), so a failing module shows up as "couldn't read that" instead of being hidden.
+- `HP_LLM_FALLBACK=1`: the bill/photo fallback may call the LLM live on a cache miss. Off by default (Invariant 1: fallbacks never call the LLM by themselves).
 
 **Test one module from the UI.** Set `IMPLEMENTED = True` in your module (or point the registry at your own function), then `HP_MODULES_ONLY=1 streamlit run app.py` → Homeowner → step 2 (example photo) or step 3 ("Use the demo bill photo"), and check the "Read by the module" line and the chips. For `calculation`: open 📊 Evaluation, every building should carry "module calc"; any grey "calculation module failed" line names the error. From the shell: `python orchestrator.py` prints which modules the app considers available.

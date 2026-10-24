@@ -1,15 +1,21 @@
-"""Orchestrator: calls the three input/result modules through one registry (CONTRACT.md §6). No Streamlit import.
+"""Orchestrator: calls the three ML modules through one registry (CONTRACT.md §6). No Streamlit import.
+
+  1 pipe_classifier   radiator photo → RadiatorObs (single_pipe | two_pipe | None)
+  2 bill_recognizer   bill photo/PDF → BillObs (raw numbers as printed)
+  3 calculation       House → Result (verdict + internal contradictions)
 
 Each module is a Python function `run(request: dict) -> dict` that returns the CONTRACT.md envelope
 {"ok", "module", "version", "data" | "error"}. Default implementations live in `modules/`; any entry can be pointed
-elsewhere without editing this file:  HP_MODULE_CALCULATION="ml.predict:run"  (also _BILL_RECOGNIZER, _IMAGE_VALIDATION).
+elsewhere without editing this file:  HP_MODULE_CALCULATION="ml.predict:run"  (also _BILL_RECOGNIZER, _PIPE_CLASSIFIER).
 
-Never raises: every failure becomes an ok=False envelope, and the public helpers fall back to the Python readers
-(extract.py) or return None so app.py falls back to engine.py → engine_tracer.py.
+Never raises: every failure becomes an ok=False envelope, and the public helpers fall back to the cached readers
+(extract.py, cache only) or return None so app.py falls back to engine.py → engine_tracer.py.
+Invariant 1: a fallback never calls the LLM by itself. Only the page-4 "Read it" button (an explicit request) does.
 
 Env switches:
-  HP_MODULES=0       no module calls at all (everything uses the existing Python path)
-  HP_MODULES_ONLY=1  no fallback for the inputs (bill, radiator photo): for testing a teammate's module
+  HP_MODULES=0        no module calls at all (everything uses the fallback path)
+  HP_MODULES_ONLY=1   no fallback for the inputs (bill, radiator photo): for testing a teammate's module
+  HP_LLM_FALLBACK=1   the input fallback may call the LLM live when the demo cache has no entry (off by default)
 """
 from __future__ import annotations
 
@@ -21,25 +27,15 @@ import tempfile
 import time
 from pathlib import Path
 
-from schema import BillObs, House, ImageCheck, RadiatorObs, Result
+from schema import BillObs, House, RadiatorObs, Result
 
 ROOT = Path(__file__).parent
 REGISTRY = {"bill_recognizer": "modules.bill_recognizer:run",
-            "image_validation": "modules.image_validation:run",
+            "pipe_classifier": "modules.pipe_classifier:run",
             "calculation": "modules.calculation:run"}
-LIMIT_S = {"image_validation": 5, "bill_recognizer": 15, "calculation": 20}     # CONTRACT.md §1 (warning only)
+LIMIT_S = {"pipe_classifier": 10, "bill_recognizer": 15, "calculation": 20}     # CONTRACT.md §1 (warning only)
 VERSION = "1-draft"
 EXT = {"application/pdf": ".pdf", "image/jpeg": ".jpg", "image/jpg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
-# ImageCheck.reason → House.missing reason (schema MissingReason)
-MISSING_OF = {"blurry": "blurry", "wrong_object": "wrong_object", "too_dark": "not_visible", "too_bright": "not_visible",
-              "too_small": "not_visible", "unreadable": "not_visible", "unsupported_type": "not_visible"}
-RETAKE_DEFAULT = {"blurry": "Hold the phone still and tap to focus, then take it again.",
-                  "too_dark": "Turn on the light or move closer to a window, then take it again.",
-                  "too_bright": "Avoid direct sunlight or flash on it, then take it again.",
-                  "too_small": "Move closer so it fills most of the picture.",
-                  "wrong_object": "That doesn't look like the right thing. Please take a photo of it again.",
-                  "unreadable": "We couldn't open that file. Try a JPG or PNG photo.",
-                  "unsupported_type": "Please send a JPG, PNG or PDF."}
 
 LAST: dict[str, dict] = {}       # module -> last envelope (debugging in a REPL)
 
@@ -54,6 +50,11 @@ def modules_enabled() -> bool:
 
 def modules_only() -> bool:
     return _flag("HP_MODULES_ONLY", "0")
+
+
+def llm_fallback() -> bool:
+    """HP_LLM_FALLBACK=1: the input fallback may call the LLM live. Off by default (Invariant 1)."""
+    return _flag("HP_LLM_FALLBACK", "0")
 
 
 def spec(name: str) -> str:
@@ -170,10 +171,6 @@ def _with_file(data: bytes, mime: str, fn):
         shutil.rmtree(d, ignore_errors=True)
 
 
-def _is_image(data: bytes, mime: str) -> bool:
-    return (mime or "").startswith("image/") and data[:4] != b"%PDF"
-
-
 def _err(env: dict) -> str:
     e = env.get("error") or {}
     return f"{env.get('module')}: {e.get('code')} ({e.get('message')})"
@@ -182,44 +179,32 @@ def _err(env: dict) -> str:
 # ---------------------------------------------------------------- inputs
 
 
-def validate_image(data: bytes, mime: str, expected: str) -> ImageCheck | None:
-    """image_validation → ImageCheck. None when the module is unavailable or failed (caller just skips the check)."""
-    if not available("image_validation"):
-        return None
-    env = _with_file(data, mime, lambda f: run_module("image_validation", {"file": f, "expected": expected}))
-    if not env.get("ok"):
-        return None
-    try:
-        return ImageCheck.model_validate({"expected": expected, **(env.get("data") or {})})
-    except Exception:
-        return None
-
-
-def unusable_house(chk: ImageCheck, field: str) -> House:
-    h = House()
-    h.missing = {field: MISSING_OF.get(chk.reason, "not_visible")}
-    h.retake_tip = chk.retake_tip or RETAKE_DEFAULT.get(chk.reason, "Please take the photo again.")
-    return h
-
-
-def _python_read(data: bytes, mime: str, mission: str) -> tuple[House | None, str]:
+def _fallback_read(data: bytes, mime: str, mission: str) -> tuple[House | None, str]:
+    """The input fallback when a module is unavailable or failed. Invariant 1: cache only (samples/cached_extract.json,
+    the committed demo reads), never a live LLM call. HP_LLM_FALLBACK=1 lets it call the LLM on a cache miss.
+    → (house, "cache") | (house, "llm") | (None, reason)."""
     if modules_only():
         return None, "HP_MODULES_ONLY=1: fallback reader disabled"
     try:
         import extract
-        return extract.extract(data, mime, mission), "python"
     except Exception as e:
         return None, f"{type(e).__name__}: {e}"
+    try:
+        return extract.extract(data, mime, mission, cache_only=True), "cache"
+    except Exception as e:
+        why = f"not in the demo cache ({type(e).__name__})"
+    if not llm_fallback():
+        return None, why
+    try:
+        return extract.extract(data, mime, mission), "llm"
+    except Exception as e:
+        return None, f"{why}; LLM fallback: {type(e).__name__}: {e}"
 
 
 def recognize_bill(data: bytes, mime: str, fuel_hint: str | None = None) -> tuple[House | None, str]:
-    """(house, "module") | (house, "python") | (None, reason).
-    Image → image_validation first; then bill_recognizer → BillObs → House; else extract.py (cache/LLM path)."""
+    """ML module 2. (house, "module") | (house, "cache" | "llm") | (None, reason).
+    bill_recognizer → BillObs → House (photo problems come back in its own missing/retake_tip); else the fallback."""
     import extract
-    if _is_image(data, mime):
-        chk = validate_image(data, mime, "bill")
-        if chk is not None and not chk.usable:
-            return unusable_house(chk, "kwh_printed"), "module"
     why = "bill_recognizer not available"
     if available("bill_recognizer"):
         env = _with_file(data, mime, lambda f: run_module("bill_recognizer", {"file": f, "fuel_hint": fuel_hint}))
@@ -230,26 +215,26 @@ def recognize_bill(data: bytes, mime: str, fuel_hint: str | None = None) -> tupl
                 why = f"bill_recognizer: reply does not match BillObs ({type(e).__name__}: {e})"
         else:
             why = _err(env)
-    h, how = _python_read(data, mime, "bill")
+    h, how = _fallback_read(data, mime, "bill")
     return (h, how) if h is not None else (None, f"{why}; fallback: {how}")
 
 
-def check_radiator_photo(data: bytes, mime: str) -> tuple[House | None, str]:
-    """(house, "module") | (house, "python") | (None, reason). image_validation first; its `radiator` reading if any."""
+def classify_pipes(data: bytes, mime: str, build_year: int | None = None) -> tuple[House | None, str]:
+    """ML module 1. (house, "module") | (house, "cache" | "llm") | (None, reason).
+    pipe_classifier → RadiatorObs (pipe_system, optional panel_type/radiator_size, missing/retake_tip) → House."""
     import extract
-    chk = validate_image(data, mime, "radiator") if _is_image(data, mime) else None
-    why = "image_validation not available"
-    if chk is not None:
-        if not chk.usable:
-            return unusable_house(chk, "radiator_size"), "module"
-        if chk.radiator is not None:
+    why = "pipe_classifier not available"
+    if available("pipe_classifier"):
+        req = {"hint": {"build_year": build_year}}
+        env = _with_file(data, mime, lambda f: run_module("pipe_classifier", {"file": f, **req}))
+        if env.get("ok"):
             try:
-                return extract.obs_to_house("radiator", RadiatorObs.model_validate(chk.radiator.model_dump())), "module"
+                return extract.obs_to_house("radiator", RadiatorObs.model_validate(env.get("data") or {})), "module"
             except Exception as e:
-                why = f"image_validation: bad radiator reading ({e})"
+                why = f"pipe_classifier: reply does not match RadiatorObs ({type(e).__name__}: {e})"
         else:
-            why = "photo usable, image_validation gave no radiator reading"
-    h, how = _python_read(data, mime, "radiator")
+            why = _err(env)
+    h, how = _fallback_read(data, mime, "radiator")
     return (h, how) if h is not None else (None, f"{why}; fallback: {how}")
 
 
@@ -392,7 +377,7 @@ def compare_summary(rows: list[dict]) -> dict:
 
 
 if __name__ == "__main__":                    # python orchestrator.py → status of the three modules
-    print("HP_MODULES:", modules_enabled(), "| HP_MODULES_ONLY:", modules_only())
+    print("HP_MODULES:", modules_enabled(), "| HP_MODULES_ONLY:", modules_only(), "| HP_LLM_FALLBACK:", llm_fallback())
     for m in REGISTRY:
         env = run_module(m, {"probe": True})
         print(f"{m:17s} {spec(m):38s} available={available(m)!s:5s} probe → ok={env.get('ok')} {env.get('error') or ''}")

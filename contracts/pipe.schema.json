@@ -1,0 +1,124 @@
+{
+  "properties": {
+    "panel_type": {
+      "anyOf": [
+        {
+          "enum": [
+            "11",
+            "22",
+            "33"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Panel Type"
+    },
+    "radiator_size": {
+      "anyOf": [
+        {
+          "enum": [
+            "small",
+            "medium",
+            "large"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Radiator Size"
+    },
+    "valve_type": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Valve Type"
+    },
+    "pipe_system": {
+      "anyOf": [
+        {
+          "enum": [
+            "two_pipe",
+            "single_pipe"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Pipe System"
+    },
+    "pipe_reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Pipe Reason"
+    },
+    "evidence": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "default": {},
+      "title": "Evidence",
+      "type": "object"
+    },
+    "confidence": {
+      "additionalProperties": {
+        "type": "number"
+      },
+      "default": {},
+      "title": "Confidence",
+      "type": "object"
+    },
+    "missing": {
+      "additionalProperties": {
+        "enum": [
+          "not_visible",
+          "blurry",
+          "ambiguous",
+          "wrong_object"
+        ],
+        "type": "string"
+      },
+      "default": {},
+      "title": "Missing",
+      "type": "object"
+    },
+    "retake_tip": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Retake Tip"
+    }
+  },
+  "title": "RadiatorObs",
+  "type": "object",
+  "$id": "hp-ready/pipe.schema.json",
+  "x-contract-version": "2-draft"
+}

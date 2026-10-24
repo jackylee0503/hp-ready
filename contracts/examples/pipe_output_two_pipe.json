@@ -1,0 +1,15 @@
+{
+  "panel_type": "22",
+  "radiator_size": null,
+  "valve_type": null,
+  "pipe_system": "two_pipe",
+  "pipe_reason": null,
+  "evidence": {
+    "pipe_system": "valve at the top, separate return at the bottom, two separate pipes into the floor (photo 05)"
+  },
+  "confidence": {
+    "pipe_system": 0.8
+  },
+  "missing": {},
+  "retake_tip": null
+}

@@ -1,4 +1,6 @@
-"""bill_recognizer: reads a gas/oil/LPG bill and returns the raw numbers as printed (BillObs).
+"""bill_recognizer (ML module 2): reads a gas/oil/LPG bill and returns the raw numbers as printed (BillObs).
+OCR or any method; raw numbers as printed; no conversion. There is no separate image check: a blurry, dark or
+wrong photo comes back in this module's own `missing` / `retake_tip` (ok=True with whatever it could read).
 
 Contract: CONTRACT.md §1-§3, schema contracts/bill.schema.json, example contracts/examples/bill_output_demo.json.
 Called in-process by orchestrator.py as run(request) -> reply. Plain Python, no new dependencies. Limit 15 s.
@@ -23,7 +25,7 @@ import sys
 MODULE = "bill_recognizer"
 VERSION = "1-draft"
 # TODO(teammate): set to True once run() returns real data. While False the app treats this module as
-# "not available" and uses the existing Python reader (the probe {"probe": True} answers `unsupported`).
+# "not available" and uses the cache-only fallback reader (the probe {"probe": True} answers `unsupported`).
 IMPLEMENTED = False
 MIMES = ("application/pdf", "image/jpeg", "image/png", "image/webp")
 

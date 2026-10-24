@@ -7,7 +7,8 @@ import io
 import re
 from pathlib import Path
 
-from loader import fuel_from, keyword_notes, llm_tool, load_json, save_json, tool_schema
+import loader                  # loader.llm_tool looked up at call time (one place to stub it)
+from loader import fuel_from, keyword_notes, load_json, save_json, tool_schema
 from schema import (MISSION_MODELS, BillObs, ExteriorObs, House, HouseTextObs, ListingObs,
                     RadiatorObs)
 
@@ -121,8 +122,9 @@ def keyword_house(text: str) -> HouseTextObs:
     return o
 
 
-def read_obs(data: bytes, mime: str, mission: str):
-    """→ (kind, obs). 'bill' may come back as 'listing'. Cache → LLM → keywords (text only)."""
+def read_obs(data: bytes, mime: str, mission: str, cache_only: bool = False):
+    """→ (kind, obs). 'bill' may come back as 'listing'. Cache → LLM → keywords (text only).
+    cache_only=True (orchestrator fallbacks, Invariant 1): never call the LLM; not cached → raises."""
     key = hashlib.sha256(mission.encode() + data).hexdigest()[:20]
     cache = load_json(CACHE)
     if key in cache:
@@ -132,8 +134,8 @@ def read_obs(data: bytes, mime: str, mission: str):
         except Exception:
             pass                                  # bad cache entry: go live
     try:
-        if DEMO_ONLY:
-            raise RuntimeError("demo mode: not in cache")
+        if DEMO_ONLY or cache_only:
+            raise RuntimeError("cache only: not in cache")
         if mission == "house_text":
             if key in _FAILED:
                 raise RuntimeError("live call failed earlier")
@@ -145,7 +147,7 @@ def read_obs(data: bytes, mime: str, mission: str):
         else:
             tools = [tool_schema(f"record_{mission}", MISSION_MODELS[mission])]
             content = [_media_block(data, mime), {"type": "text", "text": HINT[mission]}]
-        name, inp = llm_tool(content, tools, SYSTEM)
+        name, inp = loader.llm_tool(content, tools, SYSTEM)
         kind = TOOL_KIND.get(name, mission)
         if isinstance(inp, dict) and isinstance(inp.get("missing"), dict):
             inp = {**inp, "missing": {k: v for k, v in inp["missing"].items() if v in MISSING_OK}}
@@ -218,8 +220,8 @@ def obs_to_house(kind: str, obs) -> House:
     return h
 
 
-def extract(file_bytes: bytes, mime: str, mission: str) -> House:
-    kind, obs = read_obs(file_bytes, mime, mission)
+def extract(file_bytes: bytes, mime: str, mission: str, cache_only: bool = False) -> House:
+    kind, obs = read_obs(file_bytes, mime, mission, cache_only=cache_only)
     return obs_to_house(kind, obs)
 
 

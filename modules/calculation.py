@@ -1,4 +1,8 @@
-"""calculation: House → Result (replaces engine.py evaluate + installer_brief when it works).
+"""calculation (ML module 3): House → Result (replaces engine.py evaluate + installer_brief when it works).
+Owns internal contradictions: Result.contradictions = cross-field inconsistencies it finds (bill vs area-age load,
+wood stove all winter, rooms vs area, …). Input conflicts (the same field from two sources, e.g. form says oil, bill
+says gas) are not its job: the UI asks the homeowner before calculation, the House arrives with the resolved values,
+and House.conflicts lists them for context.
 
 Contract: CONTRACT.md §1-§3, schemas contracts/house.schema.json and contracts/result.schema.json,
 examples contracts/examples/calc_input_B-04/B-05/form.json → calc_output_B-04/B-05.json (today's engine.py).

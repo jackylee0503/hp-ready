@@ -11,7 +11,16 @@ The LLM only **reads**, and only when the homeowner asks for it. The **decision 
 
 ## Team and ownership (2026-10-24)
 
-- **Logic: the ML team** (aiming at a paper). They own how inputs become a verdict: `modules/calculation.py`, `modules/bill_recognizer.py`, `modules/image_validation.py`, and any model code they plug in through `orchestrator.py` (`HP_MODULE_<NAME>`). They may replace the physics entirely.
+- **Logic: the ML team** (aiming at a paper). They own three ML modules and any model code they plug in through `orchestrator.py` (`HP_MODULE_<NAME>`); they may replace the physics entirely. The split (user-confirmed, 2026-10-24 afternoon):
+  ```
+  Table (House) is filled by:
+    1/4 dropdowns + typed integers (homeowner)
+    2/4 radiator photo → ML module 1 "pipe_classifier": single-pipe vs two-pipe
+    3/4 bill (photo/PDF) → ML module 2 "bill_recognizer": OCR → raw bill numbers
+    4/4 optional free text → LLM parser, ONLY on "Read it", fills ONLY fields still empty after 1-3
+  Then ML module 3 "calculation": finds internal contradictions + produces the Result → result screens
+  ```
+  Files: `modules/pipe_classifier.py`, `modules/bill_recognizer.py`, `modules/calculation.py`. Input conflicts (same field from two sources, form vs bill/photo) are asked by the UI before the calculation and arrive resolved in `House.conflicts`; internal contradictions are module 3's `Result.contradictions` (`CONTRACT.md` "Pipeline").
 - **UI and architecture: Junwoo** (with Claude). `app.py`, `orchestrator.py`, `schema.py`, `CONTRACT.md`/`contracts/`, `loader.py`, `extract.py`. Goal: **any logic that honours the contract plugs in and the app, the demo and the evaluation keep working.**
 - When helping the ML team, help them build the model they want; enforce the invariants below, not the physics baseline.
 
@@ -29,7 +38,7 @@ The LLM only **reads**, and only when the homeowner asks for it. The **decision 
 ## Current implementation (replaceable)
 
 - The decision logic today is the **physics baseline** `engine.py` (area × age heating load × one calibrated `k`, EN 442 radiator law, Monte Carlo), with `engine_tracer.py` as the frozen fallback. It stays as the **baseline the team's models are compared against** (paper ablation), not as the required method. Sections "Engine", "Fixed assumptions" and "Data mapping" below describe this baseline.
-- Inputs today: page-1 dropdowns, radiator photo, bill, optional free text. Bill and photo go to the team's modules when they are implemented, else to `extract.py` (cached LLM parser) as fallback.
+- Inputs today: page-1 dropdowns, radiator photo, bill, optional free text. Photo and bill go to the team's modules (`pipe_classifier`, `bill_recognizer`) when they are implemented, else to `extract.py` in **cache-only** mode (the committed demo reads; a fallback never calls the LLM by itself, `HP_LLM_FALLBACK=1` re-enables a live call).
 
 ## Situation
 
@@ -111,8 +120,8 @@ First thing on the day: get the submission deadline and pitch slot. Build time =
 - `calibrate.py`: fit k on the 3 dev cases (one parameter, geometric mean of log ratios), leave-one-out.
 - `extract.py` (P0-b): wizard inputs (text, exterior photo, radiator photo, bill, listing) → `House` via per-mission tool-use schemas; resize photos to 1568 px JPEG before sending; cache by content hash.
 - `app.py`: Streamlit, tabs `🏠 Homeowner` / `📊 Evaluation` / `🔧 Installer`.
-- `orchestrator.py`: calls the three modules in-process through `REGISTRY` (`HP_MODULE_<NAME>="pkg.mod:func"` overrides one), never raises, falls back to `extract.py` (inputs) and `engine.py` → `engine_tracer.py` (result). Switches `HP_MODULES=0`, `HP_MODULES_ONLY=1`.
-- `modules/` (`bill_recognizer.py`, `image_validation.py`, `calculation.py`, teammates): `run(request) -> reply` per `CONTRACT.md`; skeletons until `IMPLEMENTED = True`; CLI `python -m modules.<name> < request.json`.
+- `orchestrator.py`: calls the three ML modules in-process through `REGISTRY` (`HP_MODULE_<NAME>="pkg.mod:func"` overrides one), never raises, falls back to `extract.py` cache-only (inputs) and `engine.py` → `engine_tracer.py` (result). Switches `HP_MODULES=0`, `HP_MODULES_ONLY=1`, `HP_LLM_FALLBACK=1`.
+- `modules/` (`pipe_classifier.py` ML 1, `bill_recognizer.py` ML 2, `calculation.py` ML 3, ML team): `run(request) -> reply` per `CONTRACT.md`; skeletons until `IMPLEMENTED = True`; CLI `python -m modules.<name> < request.json`.
 - `CONTRACT.md` + `contracts/` (JSON Schemas exported from `schema.py`, real examples): the module contract, envelope, time limits, fallbacks (§6).
 - `data/buildings_dev.*` and `data/buildings_eval.*` (organiser files, do not edit), `data/notes_cache.json`, `data/baseline_results.json` (engine regression snapshot, `python loader.py --save-baseline`), `data/pipe_photos/` (organiser photos + `labels.json`); `assets/demo/` (fictional demo inputs with expected values, committed; regenerate with its script); `samples/` (`samples/cached_extract.json` = demo-mode reads, committed); `docs/` (`docs/challenge/` = organiser pages, do not edit; `docs/TEAM_GIT.md` = branch workflow; `docs/superpowers/plans/` = implementation plans); root docs for teammates `FLOW.md` (data flow, where to change what) and `ENGINE_PLAN.md` (engine tasks, expected numbers, structured output, model seam); `requirements.txt`; `.streamlit/config.toml` (theme); `.streamlit/secrets.toml` (gitignored).
 
@@ -192,7 +201,7 @@ Other `House` fields (wizard text, photos, step-4 confirmations): `building_type
 
 ## Homeowner inputs (P0-b): a 4-step wizard
 
-> **Update 2026-10-24 (team decision, after a UI review):** the wizard is **1/4 "Your house"**: integers typed (year built, living area, yearly use in kWh or litres, people, rooms, radiators; empty = don't know), categories as dropdowns with "Don't know" (type, renovation, heating surfaces, fuel, radiator size, hot water), `*` on the fields that move the colour most (year, area, heating surfaces, renovation, radiator count and size), and the line "If you don't know everything, it's okay."; **2/4 radiator photo**, **3/4 bill**, **4/4 "Anything else? (optional)"**: free text read by the LLM parser only when the homeowner presses "Read it"; conflict questions sit at the top of page 4; "Show my answer" works without it. The form wins over text on owner facts; the bill wins on use, the photo on radiators. (Year bands were used briefly and dropped; an old `evidence["build_year"] = "band …"` still means "treat as the band".) Bill and photo go through `orchestrator.py` to the team's modules, `extract.py` only as fallback. Form values merge with owner-text priority (internal source `"text"`, shown as "form"; `CONTRACT.md` §4). The text below describes the original design.
+> **Update 2026-10-24 (team decision, after a UI review):** the wizard is **1/4 "Your house"**: integers typed (year built, living area, yearly use in kWh or litres, people, rooms, radiators; empty = don't know), categories as dropdowns with "Don't know" (type, renovation, heating surfaces, fuel, radiator size, hot water), `*` on the fields that move the colour most (year, area, heating surfaces, renovation, radiator count and size), and the line "If you don't know everything, it's okay."; **2/4 radiator photo**, **3/4 bill**, **4/4 "Anything else? (optional)"**: free text read by the LLM parser only when the homeowner presses "Read it"; conflict questions sit at the top of page 4; "Show my answer" works without it. The form wins over text on owner facts; the bill wins on use, the photo on radiators. (Year bands were used briefly and dropped; an old `evidence["build_year"] = "band …"` still means "treat as the band".) Bill and photo go through `orchestrator.py` to the team's modules, `extract.py` only as a **cache-only** fallback (never a live LLM call unless `HP_LLM_FALLBACK=1`). **Page 4 fills blanks only and never asks:** the text ranks lowest (`notes_llm`), a disagreement with a filled field is not a question but one muted "Not used (already set): …" note; conflict questions remain for form vs bill/photo. Form values merge with owner-text priority (internal source `"text"`, shown as "form"; `CONTRACT.md` §4). The text below describes the original design.
 
 The homeowner types and snaps instead of filling a form. One thing per screen, progress "1/4", every step after the first can be skipped. Typing only, no voice in the app (phone keyboards can dictate into the text box anyway). The LLM reads each step as soon as it is sent (`extract`, one mission per step), so the user sees what we understood and an unreadable photo is retaken right there (one retake).
 

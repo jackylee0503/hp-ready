@@ -1,0 +1,15 @@
+{
+  "panel_type": null,
+  "radiator_size": null,
+  "valve_type": null,
+  "pipe_system": "single_pipe",
+  "pipe_reason": null,
+  "evidence": {
+    "pipe_system": "one long pipe along the wall, tapped by a fitting at the radiator (photo 06)"
+  },
+  "confidence": {
+    "pipe_system": 0.75
+  },
+  "missing": {},
+  "retake_tip": null
+}

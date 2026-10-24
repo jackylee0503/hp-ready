@@ -1242,8 +1242,9 @@ def chips(h: House) -> str:
 # engine._field_conf don't know "form" yet (they would rank it last / give it 0.3 confidence), so the form House carries
 # source "text" internally and the screens show "form" (src_label). Flip FORM_MERGE_SRC to "form" once both know it.
 # The optional page-4 free text is read by the LLM parser only on "Read it"; its House carries TEXT_MERGE_SRC
-# ("notes_llm": below form, bill and photo in every group), so it only fills fields that are still empty, and a
-# disagreement with the form is logged by extract.merge like any other conflict.
+# ("notes_llm": below form, bill and photo in every group), so it only fills fields that are still empty. A
+# disagreement between the text and a filled field never becomes a question (home_house drops it from
+# House.conflicts); it shows as one muted "Not used (already set): …" note under the text's chips.
 FORM_MERGE_SRC = "text"
 TEXT_MERGE_SRC = "notes_llm"
 DK = "Don't know"
@@ -1436,29 +1437,46 @@ def home_house() -> House:
     if band:                                     # an exact year inside the form's band is not a disagreement
         h.conflicts = [c for c in h.conflicts if c["field"] != "build_year"
                        or any(year_band(v) != band for v in c["values"].values())]
+    # The page-4 text only fills blanks and never asks: its disagreements leave House.conflicts (no question, no
+    # contradiction) and become the muted "Not used (already set)" note under its chips.
+    unused = []
+    for c in h.conflicts:
+        vals = c.get("values") or {}
+        if TEXT_MERGE_SRC in vals and c.get("used") != TEXT_MERGE_SRC:
+            other = next(((s, v) for s, v in vals.items() if s != TEXT_MERGE_SRC), None)
+            if other:
+                f = c["field"]
+                unused.append(f"{human_field(f).lower()} {value_text(h, f, vals[TEXT_MERGE_SRC], TEXT_MERGE_SRC)} "
+                              f"({src_label(other[0])} says {value_text(h, f, other[1], other[0])})")
+    h.conflicts = [c for c in h.conflicts if TEXT_MERGE_SRC not in (c.get("values") or {})]
+    ss["text_unused"] = unused
     return h
 
 
-READER = {"module": "Read by the module", "python": "Read by the fallback reader"}
+# How an input was read (muted line under "We read"). Fallbacks never call the LLM by themselves (Invariant 1).
+READER = {"module": "Read by the module", "cache": "Read from the demo cache",
+          "llm": "Read by the AI fallback (HP_LLM_FALLBACK=1)", "failed": "Couldn't read"}
 
 
 def do_read(slot: str, data: bytes, mime: str, mission: str):
-    """Radiator photo and bill go through orchestrator.py (module first, Python reader as fallback).
+    """Radiator photo → pipe_classifier, bill → bill_recognizer (orchestrator.py; fallback = demo cache only).
     The optional free text goes to the LLM parser (extract.py, cached), only when the owner presses "Read it"."""
     ss = st.session_state
     ss.setdefault("readers", {})
     with st.spinner("Reading…"):
         try:
             if mission == "radiator":
-                h, how = O.check_radiator_photo(data, mime)
+                h, how = O.classify_pipes(data, mime, (ss.get("form") or {}).get("build_year"))
             elif mission in ("bill", "listing"):
                 h, how = O.recognize_bill(data, mime, (ss.get("form") or {}).get("fuel_type"))
             else:
                 h, how = X.extract(data, mime, mission), "python"
         except Exception as e:                  # orchestrator never raises; belt and braces
             h, how = None, f"{type(e).__name__}: {e}"
-        if h is None:
-            st.warning(f"We couldn't read that ({how}). You can skip this step.")
+        if h is None:                           # drop an older read of this slot: it isn't this file
+            ss.reads.pop(slot, None)
+            ss.readers[slot] = "failed"
+            ss.setdefault("read_fail", {})[slot] = how
             return
         if mission == "house_text":              # below the form, bill and photo: the text only fills gaps
             h.source = {f: TEXT_MERGE_SRC for f in h.source}
@@ -1483,14 +1501,21 @@ def conflict_picked(f: str, vals: list):
 
 
 def show_read(slot: str):
-    j = st.session_state.reads.get(slot)
+    ss = st.session_state
+    how = (ss.get("readers") or {}).get(slot)
+    j = ss.reads.get(slot)
     if not j:
+        if how == "failed":
+            st.warning("We couldn't read that. You can skip this step.")
+            st.caption(f"{READER['failed']} · {(ss.get('read_fail') or {}).get(slot, '')}")
         return
     h = House.model_validate_json(j)
     found = chips(h)
     if found:
         html('<p class="ok">✓ We read</p>' + found)
-    how = (st.session_state.get("readers") or {}).get(slot)
+    if slot == "text" and ss.get("text_unused"):
+        html('<p style="font-size:12px;color:var(--muted);margin:4px 0 0">Not used (already set): '
+             + esc("; ".join(ss.text_unused)) + "</p>")
     if how in READER and slot != "text":
         st.caption(READER[how])
     if h.evidence:
@@ -1523,7 +1548,8 @@ def use_example_text():
 
 
 def conflict_questions(h: House) -> int:
-    """Form vs bill/photo/text disagreements, at most 2. Returns how many were asked."""
+    """Input conflicts (form vs bill/photo), at most 2, asked before the calculation. The page-4 text never asks:
+    home_house already dropped its disagreements. Returns how many were asked."""
     ss, asked = st.session_state, 0
     for c in h.conflicts:
         if c["field"] in ss.confirmed or asked >= 2:

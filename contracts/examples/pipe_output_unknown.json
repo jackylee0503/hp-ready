@@ -1,0 +1,15 @@
+{
+  "panel_type": null,
+  "radiator_size": null,
+  "valve_type": null,
+  "pipe_system": null,
+  "pipe_reason": null,
+  "evidence": {
+    "pipe_system": "bathroom valve block that exists for both systems; cannot tell (photo 07)"
+  },
+  "confidence": {
+    "pipe_system": 0.0
+  },
+  "missing": {},
+  "retake_tip": null
+}

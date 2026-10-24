@@ -171,19 +171,6 @@ MISSION_MODELS = {"house_text": HouseTextObs, "exterior": ExteriorObs,
                   "radiator": RadiatorObs, "bill": BillObs, "listing": ListingObs}
 
 
-class ImageCheck(BaseModel):
-    """Output of image-validation.js (CONTRACT.md). Says whether a photo is usable, never what it means."""
-    expected: Literal["radiator", "bill", "exterior"]
-    usable: bool
-    reason: Literal["ok", "blurry", "too_dark", "too_bright", "too_small", "wrong_object",
-                    "unreadable", "unsupported_type"] = "ok"
-    retake_tip: Optional[str] = None           # one concrete sentence when not usable
-    width_px: Optional[int] = None
-    height_px: Optional[int] = None
-    sharpness: Optional[float] = None          # module-defined (e.g. Laplacian variance); higher = sharper
-    brightness: Optional[float] = None         # mean 0..1
-    radiator: Optional[RadiatorObs] = None     # optional: what the module could tell about a radiator photo
-
 MISSION_TEXTS = {
     "house_text": ("Tell us about your house", "Year, size, heating. Whatever you know."),
     "exterior": ("Photo of the outside", "Optional. Rough is fine."),
@@ -531,10 +518,10 @@ def check_result(h: "House", r: Result) -> list[str]:
     return out
 
 
-# ---------------------------------------------------------------- JSON contract for the JS modules (CONTRACT.md)
+# ---------------------------------------------------------------- JSON contract for the three ML modules (CONTRACT.md)
 
 CONTRACT_VERSION = "2-draft"
-CONTRACT_MODELS = {"house": House, "result": Result, "bill": BillObs, "image_check": ImageCheck}
+CONTRACT_MODELS = {"house": House, "result": Result, "bill": BillObs, "pipe": RadiatorObs}
 BASELINE_INFO = ModelInfo(name="physics baseline", version="engine.py", kind="physics", trained_on="3 organiser dev buildings (one parameter k)", seed=0, params={"k": DEFAULT.k, "n": 500})
 
 
@@ -575,12 +562,18 @@ def export_contracts(out_dir: str = "contracts") -> list[str]:
         bill_carrier="Erdgas", kwh_printed=18002.0, m3=1651.0, zustandszahl=0.9523, brennwert=11.45,
         period_start="2025-01-01", period_end="2025-12-31", bill_total_eur=2462.12, monthly_advance_eur=205.0,
         evidence={"kwh_printed": "Verbrauch 18.002 kWh"}, confidence={"kwh_printed": 0.95}).model_dump(mode="json"))
-    dump(root / "examples" / "image_check_ok.json", ImageCheck(
-        expected="radiator", usable=True, width_px=1568, height_px=1176, sharpness=412.0, brightness=0.52
+    # pipe_classifier (ML module 1): labels from data/pipe_photos/labels.json (installer-confirmed)
+    dump(root / "examples" / "pipe_output_two_pipe.json", RadiatorObs(
+        pipe_system="two_pipe", panel_type="22", confidence={"pipe_system": 0.8},
+        evidence={"pipe_system": "valve at the top, separate return at the bottom, two separate pipes into the floor "
+                                 "(photo 05)"}).model_dump(mode="json"))
+    dump(root / "examples" / "pipe_output_single_pipe.json", RadiatorObs(
+        pipe_system="single_pipe", confidence={"pipe_system": 0.75},
+        evidence={"pipe_system": "one long pipe along the wall, tapped by a fitting at the radiator (photo 06)"}
     ).model_dump(mode="json"))
-    dump(root / "examples" / "image_check_blurry.json", ImageCheck(
-        expected="radiator", usable=False, reason="blurry", width_px=1568, height_px=1176, sharpness=18.0,
-        brightness=0.47, retake_tip="Hold the phone still and tap the radiator to focus, then take it again."
+    dump(root / "examples" / "pipe_output_unknown.json", RadiatorObs(
+        pipe_system=None, confidence={"pipe_system": 0.0},
+        evidence={"pipe_system": "bathroom valve block that exists for both systems; cannot tell (photo 07)"}
     ).model_dump(mode="json"))
     return written
 
