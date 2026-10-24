@@ -18,6 +18,9 @@ def main() -> None:
     OUT.mkdir(exist_ok=True)
     photos = json.loads((HERE / "photos.json").read_text(encoding="utf-8"))["photos"]
     for key, p in photos.items():
+        if "image_url" not in p:              # already in the repo
+            print("repo", key, "→", p["local"])
+            continue
         ext = Path(p["image_url"].split("?")[0]).suffix.lower() or ".jpg"
         dst = OUT / f"{key}{ext}"
         if dst.exists():

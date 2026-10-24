@@ -24,7 +24,7 @@
       "expected_reads": {
         "text": {"build_year": 1962, "living_area_m2": 110, "building_type": "detached", "renovation": "unrenovated", "fuel_type": "oil", "yearly_use_value": 3400, "yearly_use_unit": "l", "occupants": 2, "radiator_count": 8, "radiator_size": "small"},
         "radiator": {"pipe_system": "single_pipe", "pipe_reason": "one pipe along the skirting from radiator to radiator"},
-        "exterior": {"building_type": "detached", "era_from": 1950, "era_to": 1970}
+        "exterior": {"building_type": "terraced or semi_detached (chain houses in the photo)", "era_from": 1945, "era_to": 1965, "note": "the text says detached and must win; photo age never overrides a stated year"}
       },
       "expected_house": {"build_year": 1962, "living_area_m2": 110, "building_type": "detached", "renovation": "unrenovated", "heat_distribution": "radiators", "fuel_type": "oil", "annual_fuel_liters": 3400, "occupants": 2, "dhw_by_boiler": true, "radiator_count": 8, "radiator_size": "small", "pipe_system": "single_pipe"},
       "expected": {"colour_any_of": ["red"], "must": ["reason names radiators / flow temperature above 60 °C", "single-pipe named as an on-site check"], "must_not": ["green"]}
