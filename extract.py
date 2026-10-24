@@ -15,6 +15,7 @@ ROOT = Path(__file__).parent
 CACHE = ROOT / "samples" / "cached_extract.json"
 DEMO_ONLY = False          # app toggle: cached reads only, no live calls
 SOURCE = {"house_text": "text", "exterior": "photo", "radiator": "photo", "bill": "bill", "listing": "listing"}
+MISSING_OK = {"not_visible", "blurry", "ambiguous", "wrong_object"}
 LLM_CAP = 0.8              # CLAUDE.md step 9: LLM confidence capped at 0.8
 
 SYSTEM = (
@@ -51,7 +52,7 @@ TOOL_KIND = {"record_house": "house_text", "record_exterior": "exterior", "recor
 
 
 def _media_block(data: bytes, mime: str) -> dict:
-    if mime == "application/pdf":
+    if mime.endswith("pdf") or data[:4] == b"%PDF":
         return {"type": "document",
                 "source": {"type": "base64", "media_type": "application/pdf", "data": base64.b64encode(data).decode()}}
     from PIL import Image, ImageOps
@@ -63,11 +64,16 @@ def _media_block(data: bytes, mime: str) -> dict:
             "source": {"type": "base64", "media_type": "image/jpeg", "data": base64.b64encode(buf.getvalue()).decode()}}
 
 
-def _num(s: str) -> float:
-    return float(re.sub(r"[.,](?=\d{3}\b)", "", s).replace(",", "."))
+def _num(s: str) -> float | None:
+    try:
+        return float(re.sub(r"[.,](?=\d{3}\b)", "", s).replace(",", "."))
+    except (ValueError, TypeError):
+        return None
 
 
-WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "zwei": 2, "drei": 3, "vier": 4, "fünf": 5}
+WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "zwei": 2, "drei": 3, "vier": 4, "fünf": 5,
+         "zweit": 2, "dritt": 3, "viert": 4, "fünft": 5}
+_FAILED: set[str] = set()       # keys whose live call failed this process: a down API is not retried
 
 
 def keyword_house(text: str) -> HouseTextObs:
@@ -78,21 +84,31 @@ def keyword_house(text: str) -> HouseTextObs:
         if v is not None:
             setattr(o, f, v)
             o.evidence[f], o.confidence[f] = quote, 0.5
-    m = re.search(r"\b(1[89]\d\d|20[0-2]\d)\b", text)
+    m = (re.search(r"(?:baujahr|built|from|von|aus|construction)\D{0,15}?\b(1[89]\d\d|20[0-2]\d)\b", low)
+         or re.search(r"\b(1[89]\d\d|20[0-2]\d)\b(?!\s*(?:l|kwh|m|qm|€|eur|liter))", low))
     put("build_year", int(m.group(1)) if m else None, m and m.group(0))
     m = re.search(r"(\d[\d.,]*)\s*(m²|m2|qm|sqm|square met)", low)
-    put("living_area_m2", _num(m.group(1)) if m else None, m and m.group(0))
+    v = _num(m.group(1)) if m else None
+    put("living_area_m2", v, m and m.group(0))
     m = re.search(r"(\d[\d.,]*)\s*kwh", low)
-    if m:
-        put("yearly_use_value", _num(m.group(1)), m.group(0))
+    v = _num(m.group(1)) if m else None
+    if v is not None:
+        put("yearly_use_value", v, m.group(0))
         o.yearly_use_unit = "kWh"
     m = re.search(r"(\d+)\s*(radiators|heizkörper)", low)
     put("radiator_count", int(m.group(1)) if m else None, m and m.group(0))
-    m = re.search(r"(\d+)\s*(people|persons|personen)|(\w+) of us|zu (\w+)", low)
+    m = (re.search(r"(\d+)\s*(?:people|persons|personen|leute)", low) or re.search(r"(\d+|\w+) of us", low)
+         or re.search(r"zu (zweit|dritt|viert|fünft)", low))
     if m:
-        n = m.group(1) or WORDS.get(m.group(3) or "") or WORDS.get((m.group(4) or "").replace("dritt", "drei"))
-        put("occupants", int(n) if n else None, m.group(0))
-    fuel = fuel_from(None, low)
+        g = m.group(1)
+        put("occupants", int(g) if g.isdigit() else WORDS.get(g), m.group(0))
+    fuel = None
+    for sent in re.split(r"[.;,\n]", low):
+        if re.search(r"heizung|heating|boiler|kessel|ofen", sent):
+            fuel = fuel_from(None, sent)
+            if fuel:
+                break
+    fuel = fuel or fuel_from(None, low)
     put("fuel_type", fuel, fuel)
     rad, ufh = bool(re.search(r"radiator|heizkörper", low)), bool(re.search(r"underfloor|fußboden", low))
     put("heat_distribution", "mixed" if rad and ufh else "radiators" if rad else "underfloor" if ufh else None,
@@ -110,26 +126,34 @@ def read_obs(data: bytes, mime: str, mission: str):
     key = hashlib.sha256(mission.encode() + data).hexdigest()[:20]
     cache = load_json(CACHE)
     if key in cache:
-        kind = cache[key]["kind"]
-        return kind, MISSION_MODELS[kind].model_validate(cache[key]["obs"])
-    if mission == "house_text":
-        tools = [tool_schema("record_house", HouseTextObs)]
-        content = [{"type": "text", "text": HINT[mission] + "\n\nText:\n" + data.decode("utf-8", "replace")}]
-    elif mission in ("bill", "listing"):
-        tools = [tool_schema("record_bill", BillObs), tool_schema("record_listing", ListingObs)]
-        content = [_media_block(data, mime), {"type": "text", "text": HINT["bill"]}]
-    else:
-        tools = [tool_schema(f"record_{mission}", MISSION_MODELS[mission])]
-        content = [_media_block(data, mime), {"type": "text", "text": HINT[mission]}]
+        try:
+            kind = cache[key]["kind"]
+            return kind, MISSION_MODELS[kind].model_validate(cache[key]["obs"])
+        except Exception:
+            pass                                  # bad cache entry: go live
     try:
         if DEMO_ONLY:
             raise RuntimeError("demo mode: not in cache")
+        if mission == "house_text":
+            if key in _FAILED:
+                raise RuntimeError("live call failed earlier")
+            tools = [tool_schema("record_house", HouseTextObs)]
+            content = [{"type": "text", "text": HINT[mission] + "\n\nText:\n" + data.decode("utf-8", "replace")}]
+        elif mission in ("bill", "listing"):
+            tools = [tool_schema("record_bill", BillObs), tool_schema("record_listing", ListingObs)]
+            content = [_media_block(data, mime), {"type": "text", "text": HINT["bill"]}]
+        else:
+            tools = [tool_schema(f"record_{mission}", MISSION_MODELS[mission])]
+            content = [_media_block(data, mime), {"type": "text", "text": HINT[mission]}]
         name, inp = llm_tool(content, tools, SYSTEM)
         kind = TOOL_KIND.get(name, mission)
+        if isinstance(inp, dict) and isinstance(inp.get("missing"), dict):
+            inp = {**inp, "missing": {k: v for k, v in inp["missing"].items() if v in MISSING_OK}}
         obs = MISSION_MODELS[kind].model_validate(inp)
     except Exception as e:
         if mission != "house_text":
             raise RuntimeError(f"could not read the {mission}: {e}") from e
+        _FAILED.add(key)
         return "house_text", keyword_house(data.decode("utf-8", "replace"))   # not cached
     cache[key] = {"kind": kind, "obs": obs.model_dump()}
     save_json(CACHE, cache)
@@ -156,7 +180,8 @@ def obs_to_house(kind: str, obs) -> House:
             put(f, d[f])
         u, v = (obs.yearly_use_unit or "").lower().replace("³", "3"), obs.yearly_use_value
         if v is not None:
-            field = ("annual_fuel_kwh" if "kwh" in u else "monthly_advance_eur" if ("eur" in u or "€" in u)
+            monthly = ("eur" in u or "€" in u) and bool(re.search(r"month|monat|mtl", u))
+            field = ("annual_fuel_kwh" if "kwh" in u else "monthly_advance_eur" if monthly
                      else "m3" if "m3" in u else "annual_fuel_liters" if u.startswith("l") else None)
             if field:
                 put(field, v, "yearly_use_value")
@@ -167,9 +192,8 @@ def obs_to_house(kind: str, obs) -> House:
         for f in ("building_type", "windows", "outdoor_unit_space"):
             put(f, d[f])
         put("walls_insulated", d["facade_insulation_visible"], "facade_insulation_visible")
-        if d["era_from"] and d["era_to"]:      # rough era only fills an empty year (merge: text wins)
-            put("build_year", (d["era_from"] + d["era_to"]) // 2, "era_from", cap=0.3)
-            h.evidence["build_year"] = f"photo looks like {d['era_from']}-{d['era_to']}"
+        if d["era_from"] and d["era_to"]:      # rough era stays evidence only, never a year
+            h.evidence["build_year_photo"] = f"photo looks like {d['era_from']}-{d['era_to']}"
     elif kind == "radiator":
         put("radiator_size", d["radiator_size"])
         put("pipe_system", d["pipe_system"])
@@ -215,8 +239,10 @@ SKIP = {"building_id", "confidence", "source", "evidence", "missing", "conflicts
 
 
 def _same(a, b) -> bool:
-    if isinstance(a, (int, float)) and isinstance(b, (int, float)) and not isinstance(a, bool):
-        if 1800 <= a <= 2100 and 1800 <= b <= 2100:   # years: 5 % tolerance would swallow 99 years
+    if isinstance(a, bool) or isinstance(b, bool):
+        return a == b
+    if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+        if isinstance(a, int) and isinstance(b, int):   # years, people, rooms, counts: exact
             return a == b
         return abs(a - b) <= 0.05 * max(abs(a), abs(b), 1)
     return a == b
