@@ -84,6 +84,7 @@ First thing on the day: get the submission deadline and pitch slot. Build time =
 
 ## Stack
 
+- Teammate modules are plain Python behind `orchestrator.py` (no Node, no new dependencies); the app runs on the fallbacks when they are missing or failing.
 - Python 3.11, Streamlit, Pydantic, pandas, numpy, Anthropic API. Model `claude-sonnet-5-5`. It rejects forced `tool_choice` (`any`/`tool`, 400): `loader.llm_tool` uses `auto` + "always call exactly one tool" in the system prompt, effort `low`, `max_tokens` ≥ 8000 (thinking is always on and counts toward it).
 - API key: `st.secrets["ANTHROPIC_API_KEY"]`, else environment variable. Never hard-code.
 - Run: locally with `streamlit run app.py` in a standard browser is the primary demo path (organiser: "runs locally in a standard browser"). Streamlit Community Cloud (Python 3.11) is an optional share link and backup; if used, wake it 10 minutes before the pitch. Keep a screen recording.
@@ -98,6 +99,9 @@ First thing on the day: get the submission deadline and pitch slot. Build time =
 - `calibrate.py`: fit k on the 3 dev cases (one parameter, geometric mean of log ratios), leave-one-out.
 - `extract.py` (P0-b): wizard inputs (text, exterior photo, radiator photo, bill, listing) → `House` via per-mission tool-use schemas; resize photos to 1568 px JPEG before sending; cache by content hash.
 - `app.py`: Streamlit, tabs `🏠 Homeowner` / `📊 Evaluation` / `🔧 Installer`.
+- `orchestrator.py`: calls the three modules in-process through `REGISTRY` (`HP_MODULE_<NAME>="pkg.mod:func"` overrides one), never raises, falls back to `extract.py` (inputs) and `engine.py` → `engine_tracer.py` (result). Switches `HP_MODULES=0`, `HP_MODULES_ONLY=1`.
+- `modules/` (`bill_recognizer.py`, `image_validation.py`, `calculation.py`, teammates): `run(request) -> reply` per `CONTRACT.md`; skeletons until `IMPLEMENTED = True`; CLI `python -m modules.<name> < request.json`.
+- `CONTRACT.md` + `contracts/` (JSON Schemas exported from `schema.py`, real examples): the module contract, envelope, time limits, fallbacks (§6).
 - `data/buildings_dev.*` and `data/buildings_eval.*` (organiser files, do not edit), `data/notes_cache.json`, `data/baseline_results.json` (engine regression snapshot, `python loader.py --save-baseline`), `data/pipe_photos/` (organiser photos + `labels.json`); `assets/demo/` (fictional demo inputs with expected values, committed; regenerate with its script); `samples/` (`samples/cached_extract.json` = demo-mode reads, committed); `docs/` (`docs/challenge/` = organiser pages, do not edit; `docs/TEAM_GIT.md` = branch workflow; `docs/superpowers/plans/` = implementation plans); root docs for teammates `FLOW.md` (data flow, where to change what) and `ENGINE_PLAN.md` (engine tasks, expected numbers, structured output, model seam); `requirements.txt`; `.streamlit/config.toml` (theme); `.streamlit/secrets.toml` (gitignored).
 
 ## Interface contract
@@ -175,6 +179,8 @@ Gas heat ≈ 0.11/η ≈ 12.5 ct/kWh at η 0.88 (oil ≈ 19.3 ct); worst HP case
 Other `House` fields (wizard text, photos, step-4 confirmations): `building_type`, `monthly_advance_eur`, `boiler_condensing`, `radiator_size` (small/medium/large), `windows`, `roof_insulated`, `walls_insulated`, site flags `listed_building`, `outdoor_unit_space`, `flat_level_gas_heating`, bill raw values (`kwh_printed`, `m3`, `zustandszahl`, `brennwert`, `liters`, `period_start`, `period_end`, `bill_carrier` as printed, `bill_total_eur` for display only).
 
 ## Homeowner inputs (P0-b): a 4-step wizard
+
+> **Update 2026-10-24 (team decision):** page 1 is now a **form** (year, area, type, renovation, heating surfaces, fuel, yearly use kWh/litres, people, rooms, radiators, radiator size, hot water; every field has "don't know"), not free text + exterior photo. LLM reading is being phased out: the bill and the radiator photo go through `orchestrator.py` to the teammates' modules, with `extract.py` only as the fallback. Form values merge with owner-text priority (internal source `"text"`, shown as "form"; `CONTRACT.md` §4). The text below describes the original design.
 
 The homeowner types and snaps instead of filling a form. One thing per screen, progress "1/4", every step after the first can be skipped. Typing only, no voice in the app (phone keyboards can dictate into the text box anyway). The LLM reads each step as soon as it is sent (`extract`, one mission per step), so the user sees what we understood and an unreadable photo is retaken right there (one retake).
 

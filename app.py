@@ -12,6 +12,7 @@ import pandas as pd
 import streamlit as st
 
 import extract as X
+import orchestrator as O
 from loader import load_buildings
 from schema import DEFAULT, House, Result
 
@@ -123,7 +124,8 @@ def _mtime(name: str) -> float:
 
 def engine_key() -> str:
     """Part of the _run cache key: editing engine.py while the app runs must not serve stale results."""
-    return f"engine.py@{_mtime('engine.py')}|engine_tracer.py@{_mtime('engine_tracer.py')}|import_ok={engine is not None}"
+    return (f"engine.py@{_mtime('engine.py')}|engine_tracer.py@{_mtime('engine_tracer.py')}|import_ok={engine is not None}"
+            f"|{O.cache_tag()}")
 
 
 def _brief(mod, h: House) -> Result:
@@ -137,25 +139,31 @@ def _brief(mod, h: House) -> Result:
 
 @st.cache_data(show_spinner=False)
 def _run(house_json: str, eng_key: str) -> dict:
-    """{"result": json, "engine": "main"|"tracer", "error": str|None}. Main engine first, tracer if it fails."""
+    """{"result": json, "engine": "module"|"main"|"tracer", "error": str|None, "module_error": str|None}.
+    The calculation module first (when available, orchestrator.py), then engine.py, then the tracer."""
     h = House.model_validate_json(house_json)
+    mod_err = None
+    if O.available("calculation"):
+        r, _, mod_err = O.calculate(h)
+        if r is not None:
+            return {"result": r.model_dump_json(), "engine": "module", "error": None, "module_error": None}
     err = f"import failed ({ENGINE_ERR})" if engine is None else None
     if engine is not None:
         try:
-            return {"result": _brief(engine, h).model_dump_json(), "engine": "main", "error": None}
+            return {"result": _brief(engine, h).model_dump_json(), "engine": "main", "error": None, "module_error": mod_err}
         except Exception as e:
             err = f"{type(e).__name__}: {e}"
     tr = _tracer()
     if tr is None:
         raise RuntimeError(err or "no engine")
     try:
-        return {"result": _brief(tr, h).model_dump_json(), "engine": "tracer", "error": err}
+        return {"result": _brief(tr, h).model_dump_json(), "engine": "tracer", "error": err, "module_error": mod_err}
     except Exception as e2:
         raise RuntimeError(f"{err}; tracer also failed ({type(e2).__name__}: {e2})") from e2
 
 
 ENGINE_ERRS: dict[str, str] = {}               # building id -> last evaluate error (shown small in Evaluation)
-ENGINE_USED: dict[str, dict] = {}              # building id -> {"engine": "main"|"tracer", "error": str|None}
+ENGINE_USED: dict[str, dict] = {}              # building id -> {"engine": "module"|"main"|"tracer", "error", "module_error"}
 
 
 def evaluate(h: House, quiet: bool = False) -> Result | None:
@@ -164,7 +172,7 @@ def evaluate(h: House, quiet: bool = False) -> Result | None:
         out = _run(h.model_dump_json(), engine_key())
         r = Result.model_validate_json(out["result"])
         ENGINE_ERRS.pop(bid, None)
-        ENGINE_USED[bid] = {"engine": out["engine"], "error": out["error"]}
+        ENGINE_USED[bid] = {"engine": out["engine"], "error": out["error"], "module_error": out.get("module_error")}
         return r
     except Exception as e:
         ENGINE_ERRS[bid] = str(e)
@@ -174,13 +182,28 @@ def evaluate(h: House, quiet: bool = False) -> Result | None:
         return None
 
 
-def on_tracer(bid) -> bool:
+def engine_used(bid) -> str | None:
+    """"module" | "main" | "tracer" | None: which engine produced this building's result."""
     key = "None" if bid == "Homeowner house" else str(bid)   # the homeowner house has no building_id
-    return (ENGINE_USED.get(key) or {}).get("engine") == "tracer"
+    return (ENGINE_USED.get(key) or {}).get("engine")
+
+
+def on_tracer(bid) -> bool:
+    return engine_used(bid) == "tracer"
+
+
+def on_module(bid) -> bool:
+    return engine_used(bid) == "module"
+
+
+CHIP_STYLE = ('style="font-size:10px;font-weight:600;color:var(--muted);border:1px solid var(--line);border-radius:999px;'
+              'padding:1px 6px;margin-left:6px;vertical-align:middle"')
 
 
 def tracer_chip(bid) -> str:
-    """Tiny muted chip next to a building id when its result came from the frozen tracer engine."""
+    """Tiny muted chip next to a building id: "module calc" (calculation module), "tracer" (frozen engine), nothing for engine.py."""
+    if on_module(bid):
+        return f'<span title="computed by the calculation module (orchestrator.py)" {CHIP_STYLE}>module calc</span>'
     if not on_tracer(bid):
         return ""
     return ('<span title="engine.py failed for this building; showing the frozen tracer engine" '
@@ -557,6 +580,8 @@ def answer_card(h: House, r: Result | None, key: str):
             st.caption(r.next_step.detail)
     if on_tracer(h.building_id):
         st.caption("Computed with the backup engine.")
+    elif on_module(h.building_id):
+        st.caption("Computed by the calculation module.")
 
 # ---------------------------------------------------------------- tabs
 
@@ -868,8 +893,10 @@ def fallback_lines(res) -> list[str]:
     """One muted line per building whose result came from the tracer because engine.py failed."""
     if engine is None and any(on_tracer(bid) for bid, *_ in res):
         return [f"New engine failed to import ({(ENGINE_ERR or '')[:120]}), showing the tracer result for all buildings"]
-    return [f"{bid}: new engine failed ({(ENGINE_USED[str(bid)]['error'] or '')[:120]}), showing the tracer result"
-            for bid, *_ in res if on_tracer(bid)]
+    return ([f"{bid}: new engine failed ({(ENGINE_USED[str(bid)]['error'] or '')[:120]}), showing the tracer result"
+             for bid, *_ in res if on_tracer(bid)]
+            + [f"{bid}: calculation module failed ({(ENGINE_USED[str(bid)].get('module_error') or '')[:120]}), showing engine.py"
+               for bid, *_ in res if (ENGINE_USED.get(str(bid)) or {}).get("module_error")])
 
 
 def baseline_section(res):
@@ -970,9 +997,140 @@ def chips(h: House) -> str:
     return "".join(out)
 
 
+# ---- page 1 form (decision 2026-10-24: a form replaces the free-text step; LLM reading is being phased out)
+# Merge priority: the form is owner-entered, so it ranks like the old owner text ("text" in extract.ORDER: owner fields
+# beat bill/photo, the bill beats it for fuel and use, the photo beats it for radiator size and pipes). extract.merge and
+# engine._field_conf don't know "form" yet (they would rank it last / give it 0.3 confidence), so the form House carries
+# source "text" internally and the screens show "form" (src_label). Flip FORM_MERGE_SRC to "form" once both know it.
+FORM_MERGE_SRC = "text"
+DK = "don't know"
+FORM = [  # (field, label, options | None for numbers, option labels)
+    ("build_year", "Year built", None, None),
+    ("living_area_m2", "Living area m²", None, None),
+    ("building_type", "Building type", ["detached", "semi_detached", "terraced", "apartment"],
+     {"detached": "detached", "semi_detached": "semi-detached", "terraced": "terraced", "apartment": "apartment"}),
+    ("renovation", "Renovation", ["unrenovated", "partially", "fully"],
+     {"unrenovated": "not renovated", "partially": "partly", "fully": "fully"}),
+    ("heat_distribution", "Heating surfaces", ["radiators", "underfloor", "mixed"],
+     {"radiators": "radiators", "underfloor": "underfloor", "mixed": "both"}),
+    ("fuel_type", "Fuel", ["gas", "lpg", "oil", "district", "electric"],
+     {"gas": "gas", "lpg": "LPG", "oil": "oil", "district": "district heating", "electric": "electric"}),
+    ("use_value", "Yearly use", None, None),
+    ("use_unit", "Unit", ["kWh", "litres"], None),
+    ("occupants", "People", None, None),
+    ("rooms", "Rooms", None, None),
+    ("radiator_count", "Radiators (count)", None, None),
+    ("radiator_size", "Radiator size", ["small", "medium", "large"], None),
+    ("dhw_by_boiler", "Hot water from the boiler", ["yes", "no"], None),
+]
+FORM_NUM = {"build_year": dict(min_value=1850, max_value=2026, step=1),
+            "living_area_m2": dict(min_value=0.0, step=5.0, format="%.0f"),
+            "use_value": dict(min_value=0.0, step=500.0, format="%.0f"),
+            "occupants": dict(min_value=0, max_value=30, step=1), "rooms": dict(min_value=0, max_value=60, step=1),
+            "radiator_count": dict(min_value=0, max_value=80, step=1)}
+FORM_EXAMPLE = {"build_year": 1972, "living_area_m2": 140.0, "building_type": "terraced", "renovation": "partially",
+                "heat_distribution": "radiators", "fuel_type": "gas", "use_value": 18000.0, "use_unit": "kWh",
+                "occupants": 3, "radiator_count": 10, "radiator_size": "large", "dhw_by_boiler": "yes"}
+FORM_FIELDS = ("build_year", "living_area_m2", "building_type", "renovation", "heat_distribution", "fuel_type",
+               "annual_fuel_kwh", "annual_fuel_liters", "occupants", "rooms", "radiator_count", "radiator_size",
+               "dhw_by_boiler")
+
+
+def src_label(src: str | None) -> str:
+    """Display name of a source: the form's internal merge source shows as "form"."""
+    return "form" if src == FORM_MERGE_SRC and st.session_state.get("form") else (src or "")
+
+
+def _reseed_fix():
+    ss = st.session_state
+    for f, *_ in FIX:                           # unconfirmed step-4 fields reseed from the new value
+        if f not in ss.get("confirmed", {}):
+            ss.pop(f"fix_{f}", None)
+
+
+def _form_targets(f: str) -> list[str]:
+    return ["annual_fuel_kwh", "annual_fuel_liters"] if f in ("use_value", "use_unit") else [f]
+
+
+def form_changed(f: str):
+    ss = st.session_state
+    v = ss.get(f"pf_{f}")
+    if v is None or v == DK or (v == 0 and f != "use_unit"):   # empty (or 0) = don't know
+        ss.form.pop(f, None)
+    else:
+        ss.form[f] = v
+    for t in _form_targets(f):                  # a new form answer beats an older step-4 answer for that field
+        ss.confirmed.pop(t, None)
+        ss.cleared.discard(t)
+        ss.pop(f"fix_{t}", None)
+    _reseed_fix()
+
+
+def _form_default(f: str, opts):
+    return st.session_state.form.get(f, ("kWh" if f == "use_unit" else DK) if opts else None)
+
+
+def form_fill_example():
+    ss = st.session_state
+    ss.form = dict(FORM_EXAMPLE)
+    for f, _, opts, _ in FORM:
+        ss[f"pf_{f}"] = _form_default(f, opts)
+    for f in FORM_FIELDS:
+        ss.confirmed.pop(f, None)
+        ss.cleared.discard(f)
+    _reseed_fix()
+
+
+def form_house() -> House | None:
+    """Page-1 answers → House (source FORM_MERGE_SRC, confidence 0.9). None when nothing is filled."""
+    fm = st.session_state.get("form") or {}
+    vals = {}
+    for f in ("build_year", "occupants", "rooms", "radiator_count"):
+        if fm.get(f) is not None:
+            vals[f] = int(fm[f])
+    if fm.get("living_area_m2") is not None:
+        vals["living_area_m2"] = float(fm["living_area_m2"])
+    for f in ("building_type", "renovation", "heat_distribution", "fuel_type", "radiator_size"):
+        if fm.get(f) not in (None, DK):
+            vals[f] = fm[f]
+    if fm.get("dhw_by_boiler") in ("yes", "no"):
+        vals["dhw_by_boiler"] = fm["dhw_by_boiler"] == "yes"
+    if fm.get("use_value"):
+        vals["annual_fuel_liters" if fm.get("use_unit") == "litres" else "annual_fuel_kwh"] = float(fm["use_value"])
+    if not vals:
+        return None
+    h = House(**vals)
+    h.source = {f: FORM_MERGE_SRC for f in vals}
+    h.confidence = {f: 0.9 for f in vals}
+    return h
+
+
+def form_page():
+    ss = st.session_state
+    st.markdown("## Tell us about your house")
+    st.caption("A few facts. 'Don't know' is fine.")
+    st.button("Fill with the example", on_click=form_fill_example)
+    cols = None
+    for i, (f, label, opts, names) in enumerate(FORM):
+        if i % 2 == 0:                           # one row per pair: on a phone the rows stack in reading order
+            cols = st.columns(2)
+        key, col = f"pf_{f}", cols[i % 2]
+        if key not in ss:                        # seed once from the stored answers (widget state is dropped off-page)
+            ss[key] = _form_default(f, opts)
+        if opts:
+            choices = opts if f == "use_unit" else [DK] + opts
+            col.selectbox(label, choices, key=key, on_change=form_changed, args=(f,),
+                          format_func=lambda v, n=names: (n or {}).get(v, v))
+        else:
+            col.number_input(label, value=None, key=key, on_change=form_changed, args=(f,),
+                             help="empty = don't know", **FORM_NUM[f])
+
+
 def home_house() -> House:
     ss = st.session_state
-    h = reduce(X.merge, [House.model_validate_json(j) for j in ss.reads.values()], House(building_id="Homeowner"))
+    pieces = [House.model_validate_json(j) for j in ss.reads.values()]
+    fh = form_house()
+    h = reduce(X.merge, ([fh] if fh else []) + pieces, House(building_id="Homeowner"))
     conf = House(building_id="Homeowner", **ss.confirmed)
     conf.source = {f: "confirmed" for f in ss.confirmed}
     conf.confidence = {f: 0.9 for f in ss.confirmed}
@@ -984,17 +1142,28 @@ def home_house() -> House:
     return h
 
 
+READER = {"module": "Read by the module", "python": "Read by the fallback reader"}
+
+
 def do_read(slot: str, data: bytes, mime: str, mission: str):
+    """Radiator photo and bill go through orchestrator.py (module first, Python reader as fallback)."""
     ss = st.session_state
+    ss.setdefault("readers", {})
     with st.spinner("Reading…"):
         try:
-            ss.reads[slot] = X.extract(data, mime, mission).model_dump_json()
-        except Exception as e:
-            st.warning(f"We couldn't read that ({e}). You can skip this step.")
+            if mission == "radiator":
+                h, how = O.check_radiator_photo(data, mime)
+            elif mission in ("bill", "listing"):
+                h, how = O.recognize_bill(data, mime, (ss.get("form") or {}).get("fuel_type"))
+            else:
+                h, how = X.extract(data, mime, mission), "python"
+        except Exception as e:                  # orchestrator never raises; belt and braces
+            h, how = None, f"{type(e).__name__}: {e}"
+        if h is None:
+            st.warning(f"We couldn't read that ({how}). You can skip this step.")
             return
-    for f, *_ in FIX:                           # unconfirmed step-4 fields reseed from the new read
-        if f not in ss.get("confirmed", {}):
-            ss.pop(f"fix_{f}", None)
+        ss.reads[slot], ss.readers[slot] = h.model_dump_json(), how
+    _reseed_fix()
 
 
 def read_upload(up, slot: str, mission: str):
@@ -1045,13 +1214,18 @@ def show_read(slot: str):
     if not j:
         return
     h = House.model_validate_json(j)
-    html('<p class="ok">✓ We read</p>' + chips(h))
+    found = chips(h)
+    if found:
+        html('<p class="ok">✓ We read</p>' + found)
+    how = (st.session_state.get("readers") or {}).get(slot)
+    if how in READER:
+        st.caption(READER[how])
     if h.evidence:
         with st.expander("Why?"):
             for f, q in h.evidence.items():
                 st.caption(f"{f.replace('_', ' ')}: {q}")
     if h.retake_tip or h.missing:
-        st.info(h.retake_tip or "Some of it was unreadable. One more photo?")
+        (st.info if found else st.warning)(h.retake_tip or "Some of it was unreadable. One more photo?")
 
 
 def nav(step: int, can_skip: bool) -> str | None:
@@ -1072,6 +1246,8 @@ def tab_homeowner():
     ss.setdefault("reads", {})
     ss.setdefault("confirmed", {})
     ss.setdefault("cleared", set())
+    ss.setdefault("form", {})
+    ss.setdefault("readers", {})
     h = home_house()
     left, right = st.columns([3, 2])
     with left:
@@ -1080,20 +1256,8 @@ def tab_homeowner():
                  + f'</div><span class="muted">{ss.step} of 4</span>')
         act = None
         if ss.step == 1:
-            st.markdown("## Tell us about your house")
-            st.caption("Year, size, heating. Whatever you know.")
-            demo = (ROOT / "assets/demo/house_persona_en.txt").read_text(encoding="utf-8").strip()
-            st.button("Use the example text", on_click=lambda: ss.update(house_text=demo))
-            txt = st.text_area("Your house", key="house_text", placeholder=demo, height=130)
-            if st.button("Read it", disabled=not txt.strip()):
-                do_read("house_text", txt.strip().encode("utf-8"), "text/plain", "house_text")
-            show_read("house_text")
-            read_upload(st.file_uploader("Photo of the outside · optional", type=["jpg", "jpeg", "png", "webp"],
-                                         key="up_ext"), "exterior", "exterior")
-            show_read("exterior")
+            form_page()
             act = nav(1, False)
-            if act == "next" and txt.strip() and "house_text" not in ss.reads:
-                do_read("house_text", txt.strip().encode("utf-8"), "text/plain", "house_text")
         elif ss.step == 2:
             st.markdown("## Your biggest radiator")
             st.caption("From the side, pipes in view.")
@@ -1142,12 +1306,13 @@ def tab_homeowner():
                         ss[key] = None if v is None else int(v)
                     c2.number_input(label, min_value=0, value=None, step=1, key=key, label_visibility="collapsed",
                                     help="empty = don't know", on_change=fix_changed, args=(f,))
-                html(f'<span class="pill">{h.source.get(f, "missing")}</span>', c3)
+                html(f'<span class="pill">{src_label(h.source.get(f)) or "missing"}</span>', c3)
             asked = 0
             for c in h.conflicts:
                 if c["field"] in ss.confirmed or asked >= 2:
                     continue
                 (sa, va), (sb, vb) = list(c["values"].items())[:2]
+                sa, sb = src_label(sa), src_label(sb)
                 labels = [str(va), str(vb), "don't know"]
                 st.radio(f"Your {sa} says {va}, your {sb} says {vb}. Which one is it?", [0, 1, 2],
                          format_func=lambda i, lb=labels: lb[i], index=None, key=f"q_{c['field']}",
@@ -1181,7 +1346,12 @@ def tab_homeowner():
         html('<div class="card"><b>What we know so far</b> <span class="muted">tap to fix</span></div>')
         fmts = {**dict(CHIPS), "renovation": "{}", "radiator_count": "{}", "radiator_size": "{}", "occupants": "{}",
                 "kwh_printed": "{:,.0f} kWh"}
-        for f, label, _ in FIX + [("pipe_system", "Pipes", None), ("kwh_printed", "Bill kWh", None)]:
+        fmts.update({"annual_fuel_liters": "{:,.0f} litres", "rooms": "{}",
+                     "dhw_by_boiler": "yes" if h.dhw_by_boiler else "no"})
+        extra = [("building_type", "Building type", None), ("annual_fuel_liters", "Yearly use (litres)", None),
+                 ("rooms", "Rooms", None), ("dhw_by_boiler", "Hot water from the boiler", None),
+                 ("pipe_system", "Pipes", None), ("kwh_printed", "Bill kWh", None)]
+        for f, label, _ in FIX + extra:
             v = getattr(h, f)
             if v is not None:
                 try:
@@ -1190,7 +1360,7 @@ def tab_homeowner():
                     s = str(v)
                 c1, c2 = st.columns([3, 1])
                 c1.markdown(f"{label}: **{s.replace('_', ' ')}**")
-                html(f'<span class="pill">{h.source.get(f, "")}</span>', c2)
+                html(f'<span class="pill">{src_label(h.source.get(f))}</span>', c2)
 
 
 def request_subject(r: Result) -> str:

@@ -1,7 +1,9 @@
 # How HP-Ready works (data flow + where to change things)
 
 **One line:** inputs become a `House`, the engine turns a `House` into a `Result`, the app only shows the `Result`.
-The AI only *reads* (text, bills, photos). The engine (plain Python physics) *decides*.
+Readers only *read* (form, bills, photos). The engine (plain Python physics) *decides*.
+Since 2026-10-24 page 1 is a form, and three Python modules (`modules/`, owned by teammates) sit behind `orchestrator.py`
+with the old code as fallback. Contract: `CONTRACT.md`.
 
 ## 1. Data flow
 
@@ -9,16 +11,16 @@ The AI only *reads* (text, bills, photos). The engine (plain Python physics) *de
 flowchart LR
     subgraph IN[Inputs]
       A[data/buildings_*.json<br/>5 real buildings]
-      B[Homeowner text]
+      B[Page-1 form]
       C[Bill / listing<br/>photo or PDF]
-      D[Radiator / house photo]
+      D[Radiator photo]
     end
     A -->|loader.py<br/>regex + AI reads notes| H[House]
-    B -->|extract.py<br/>AI reads| H1[House piece]
-    C -->|extract.py| H2[House piece]
-    D -->|extract.py| H3[House piece]
+    B -->|app.form_house| H1[House piece]
+    C -->|orchestrator: image_validation → bill_recognizer<br/>fallback extract.py| H2[House piece]
+    D -->|orchestrator: image_validation<br/>fallback extract.py| H3[House piece]
     H1 & H2 & H3 -->|extract.merge<br/>who wins per field| H
-    H -->|engine.evaluate| R[Result]
+    H -->|orchestrator: calculation<br/>fallback engine.py → engine_tracer.py| R[Result]
     R --> E[📊 Evaluation tab]
     R --> HO[🏠 Homeowner answer card]
     R --> I[🔧 Installer sheet]
@@ -27,10 +29,11 @@ flowchart LR
 Plain text version:
 
 ```
-data/*.json ──loader.py──┐
-homeowner text ──┐       │
-bill / listing ──┼─extract.py─> pieces ──merge──> House ──engine.evaluate──> Result ──app.py──> 3 tabs
-photos ──────────┘       │
+data/*.json ──loader.py──────────────────────────────────────────┐
+page-1 form ──────────────────────────────────────┐              │
+bill / listing ──orchestrator (module | extract.py)┼─> pieces ──merge──> House
+radiator photo ──orchestrator (module | extract.py)┘
+House ──orchestrator: calculation module | engine.py | engine_tracer.py──> Result ──app.py──> 3 tabs
 ```
 
 - **`House`** = everything we know about one home. Every value also has a `source` (data / text / bill / photo / confirmed) and a `confidence`. Unknown stays `None`.
@@ -43,12 +46,14 @@ photos ──────────┘       │
 | --- | --- | --- |
 | `schema.py` | Junwoo | `House`, `Result` and all fixed numbers (prices, JAZ, W/m² table, radiator table). Names are frozen; ask before adding a field. |
 | `loader.py` | Junwoo | Reads the 5 organiser buildings into `House`. Numbers by regex; notes facts by AI (cached in `data/notes_cache.json`). Also holds the shared AI call `llm_tool`. |
-| `extract.py` | Junwoo | Homeowner inputs → `House`: one AI call per input ("mission"), cached in `samples/cached_extract.json`. `merge` combines pieces and logs disagreements in `House.conflicts`. |
+| `extract.py` | Junwoo | Fallback reader for bill and radiator photo: one AI call per input ("mission"), cached in `samples/cached_extract.json` (being phased out). `obs_to_house` turns a module's `BillObs`/`RadiatorObs` into a `House`; `merge` combines pieces and logs disagreements in `House.conflicts`. |
+| `orchestrator.py` | Junwoo | Calls the three modules through `REGISTRY` (override per module with `HP_MODULE_<NAME>="pkg.mod:func"`), never raises, falls back to `extract.py` / `engine.py`. Switches `HP_MODULES=0`, `HP_MODULES_ONLY=1`. `python orchestrator.py` = which modules are live. |
+| `modules/bill_recognizer.py`, `modules/image_validation.py`, `modules/calculation.py` | teammates | `run(request) -> reply` (CONTRACT.md). Skeletons today (`IMPLEMENTED = False` → app uses the fallbacks). CLI: `python -m modules.<name> < request.json`. |
 | `engine.py` | engine team | The physics: `House` → `Result`. Deterministic (seed 0). |
 | `engine_tracer.py` | nobody (frozen) | Copy of the original engine. The app uses it per building only when `engine.py` fails. Don't edit. |
 | `data/baseline_results.json` | engine team | Snapshot of the key numbers per building, for `python loader.py --compare-baseline`. |
 | `calibrate.py` | engine team | Fits the one tuning number `k` on the 3 dev buildings; leave-one-out errors for the Evaluation tab. |
-| `app.py` | Junwoo | Streamlit UI, three tabs. Never calculates physics; only calls `engine`. |
+| `app.py` | Junwoo | Streamlit UI, three tabs. Never calculates physics; gets every `Result` via the calculation module → `engine.py` → tracer chain. Page 1 = form (`FORM`, `form_house`). |
 
 ## 3. "I want to change X" → edit here
 
@@ -67,7 +72,9 @@ photos ──────────┘       │
 | Next question we ask the homeowner | `engine.py`, `QUESTIONS`, `_next_question` | |
 | The tuning number `k` | `calibrate.py` (then `schema.py` `Params.k` default) | Run `python calibrate.py` |
 | Prices, JAZ | `schema.py` constants | Fixed by the challenge: don't change |
-| What the AI reads from text / photos / bills | `extract.py`, `SYSTEM` and `HINT` | Then delete the old entries from `samples/cached_extract.json` so they are re-read |
+| How a bill / radiator photo is read | `modules/bill_recognizer.py`, `modules/image_validation.py` (contract: `CONTRACT.md`) | Fallback reader: `extract.py` `SYSTEM` and `HINT` (then delete old entries from `samples/cached_extract.json`) |
+| Replace the whole calculation | `modules/calculation.py` (or `HP_MODULE_CALCULATION="pkg.mod:func"`) | Check: `CONTRACT.md` §5; on failure the app falls back to `engine.py` per building |
+| Page-1 form fields, example values | `app.py` `FORM`, `FORM_EXAMPLE`, `form_house` | |
 | What the AI reads from building notes | `loader.py`, `NOTES_SYSTEM` | Then delete `data/notes_cache.json` entries and run `python loader.py` |
 | Which input wins when two disagree | `extract.py`, `ORDER`, `GROUP` in `merge` | |
 | Screen text, layout, colours | `app.py` (`answer_card`, `tab_evaluation`, `tab_homeowner`, `tab_installer`) | Theme: `.streamlit/config.toml` |
