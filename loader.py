@@ -145,15 +145,24 @@ def _hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
+_LLM_FAILED: set[str] = set()
+
+
 def parse_notes(text: str, use_llm: bool = True) -> NotesObs:
     """Cache first, then LLM, then keywords. U-values always by regex on top."""
     text = (text or "").strip()
     if not text:
         return NotesObs(method="keywords")
     cache, key = load_json(NOTES_CACHE), _hash(text)
+    obs = None
     if key in cache:
-        obs = NotesObs.model_validate({**cache[key], "method": "cache"})
-    elif use_llm:
+        try:
+            obs = NotesObs.model_validate({**cache[key], "method": "cache"})
+        except Exception as e:
+            print(f"[notes] bad cache entry ignored ({e})")
+    if obs is not None:
+        pass
+    elif use_llm and key not in _LLM_FAILED:
         try:
             _, inp = llm_tool([{"type": "text", "text": f"Notes:\n{text}"}],
                               [tool_schema("record_notes", NotesObs, drop=("method",))], NOTES_SYSTEM)
@@ -161,6 +170,7 @@ def parse_notes(text: str, use_llm: bool = True) -> NotesObs:
             cache[key] = obs.model_dump(exclude={"method"}) | {"text": text}
             save_json(NOTES_CACHE, cache)
         except Exception as e:
+            _LLM_FAILED.add(key)
             print(f"[notes] LLM failed ({e}); keyword fallback")
             obs = keyword_notes(text)
     else:
@@ -176,13 +186,16 @@ def _blank(v) -> bool:
     return v is None or (isinstance(v, float) and pd.isna(v)) or (isinstance(v, str) and not v.strip())
 
 
-def _int_text(s: str) -> int:
-    """'4,000' / '4.000' / '18000' → int."""
-    return int(re.sub(r"[.,](?=\d{3}\b)", "", s))
+def _int_text(s: str) -> int | None:
+    """'4,000' / '4.000' / '18000' → int; anything odd → None."""
+    try:
+        return int(re.sub(r"[.,](?=\d{3}\b)", "", s.strip().rstrip(".,")))
+    except Exception:
+        return None
 
 
 def fuel_from(carrier: str | None, detail: str | None) -> str | None:
-    t = f"{carrier or ''} {detail or ''}".lower()
+    t = re.sub(r"[_-]", " ", f"{carrier or ''} {detail or ''}".lower())
     if re.search(r"lpg|flüssiggas|liquefied", t):
         return "lpg"
     if re.search(r"\boil\b|heizöl|\böl", t):
@@ -208,14 +221,23 @@ def row_to_house(row: dict, use_llm: bool = True) -> tuple[str, House, dict | No
         h.source[field], h.confidence[field] = src, conf
 
     def get(k, cast):
-        return cast(r[k]) if r.get(k) is not None else None
+        try:
+            return cast(r[k]) if r.get(k) is not None else None
+        except Exception:
+            return None
 
     put("build_year", get("construction_year", int))
     put("living_area_m2", get("floor_area_m2", lambda v: float(round(float(v)))))
     ren = r.get("renovation_status")
-    put("renovation", ren if ren in ("unrenovated", "partially", "fully") else None)
+    rl = str(ren or "").lower()
+    put("renovation", "partially" if re.search(r"partial|teilweise", rl) else
+        "fully" if re.search(r"full|komplett|vollständig", rl) else
+        "unrenovated" if re.search(r"unrenovated|unsaniert", rl) else None)
     hd = r.get("heat_distribution")
-    put("heat_distribution", hd if hd in ("radiators", "underfloor", "mixed") else None)
+    hl = str(hd or "").lower()
+    put("heat_distribution", "underfloor" if re.search(r"underfloor|fußboden", hl) else
+        "mixed" if re.search(r"mixed|both", hl) else
+        "radiators" if re.search(r"radiator|heizkörper", hl) else None)
     put("annual_fuel_kwh", get("annual_consumption_kwh", float))
     detail = r.get("energy_carrier_detail") or ""
     fuel = fuel_from(r.get("energy_carrier"), detail)
@@ -224,15 +246,16 @@ def row_to_house(row: dict, use_llm: bool = True) -> tuple[str, House, dict | No
         h.data_notes.append("carrier says gas, detail says LPG → lpg")
     m = re.search(r"(\d[\d.,]*)\s*(?:litres|liters|liter|l)\b", detail, re.I)
     if m:
-        put("annual_fuel_liters", float(_int_text(m.group(1))), 0.8)
+        n = _int_text(m.group(1))
+        put("annual_fuel_liters", None if n is None else float(n), 0.8)
 
     ri = r.get("radiator_info") or ""
     low = ri.lower()
-    m = re.search(r"(\d+)\s*radiators?\b", ri, re.I)
+    m = re.search(r"(\d+)\s*radiators?\b(?!\s*valves)", ri, re.I)
     put("radiator_count", int(m.group(1)) if m else None, 0.8)
-    m = re.search(r"(\d+)\s*valves", ri, re.I)
+    m = re.search(r"(\d+)\s*(?:\w+\s+)?valves", ri, re.I)
     put("valves_to_replace", int(m.group(1)) if m else None, 0.8)
-    if re.search(r"(?<!un)balanced|abgeglichen", low) and not re.search(r"not balanced|nicht abgeglichen", low):
+    if any(re.search(r"(?<!un)balanced|abgeglichen", c) and not NEG.search(c) for c in re.split(r"[,;.]", low)):
         put("hydraulic_balanced", True, 0.8)
     if "presettable" in low:
         h.data_notes.append("presettable valves, balancing to check")
@@ -241,11 +264,14 @@ def row_to_house(row: dict, use_llm: bool = True) -> tuple[str, House, dict | No
     if "valve block" in low:
         h.data_notes.append("valve blocks say nothing about the pipe system")
 
-    put("pipe_system", {"two-pipe": "two_pipe", "single-pipe": "single_pipe"}.get((r.get("pipe_system") or "").lower()))
+    ps = str(r.get("pipe_system") or "").lower()
+    put("pipe_system", "two_pipe" if re.search(r"two.?pipe|zweirohr", ps) else
+        "single_pipe" if re.search(r"single.?pipe|one.?pipe|einrohr", ps) else None)
     put("current_flow_temp_c", get("flow_temperature_c", float))
     put("occupants", get("persons_in_household", int))
     hw = r.get("hot_water_via_heating")
-    put("dhw_by_boiler", None if hw is None else hw in (True, 1, "yes", "true", "True"))
+    hws = str(hw).strip().lower() if hw is not None else ""
+    put("dhw_by_boiler", True if hws in ("yes", "ja", "true", "1") else False if hws in ("no", "nein", "false", "0") else None)
     put("rooms", get("rooms", int))
     loc = r.get("location") or ""
     m = re.match(r"\s*(\w+)\s+area", loc, re.I)
@@ -266,10 +292,16 @@ def row_to_house(row: dict, use_llm: bool = True) -> tuple[str, House, dict | No
 
 def _read_set(base: Path, stem: str) -> list[dict]:
     j, c = base / f"{stem}.json", base / f"{stem}.csv"
-    if j.exists():
-        return json.loads(j.read_text(encoding="utf-8"))
-    if c.exists():
-        return pd.read_csv(c).to_dict("records")
+    try:
+        if j.exists():
+            d = json.loads(j.read_text(encoding="utf-8"))
+            if isinstance(d, dict):
+                d = next((v for v in d.values() if isinstance(v, list)), [])
+            return [x for x in d if isinstance(x, dict)]
+        if c.exists():
+            return pd.read_csv(c).to_dict("records")
+    except Exception as e:
+        print(f"[loader] could not read {stem}: {e}")
     return []
 
 
