@@ -94,10 +94,11 @@ First thing on the day: get the submission deadline and pitch slot. Build time =
 - `schema.py`: Pydantic `House`, `Result`, `NotesObs`, photo schemas (`BillObs`, `RadiatorObs`, `ExteriorObs`), fixed constants, photo-mission texts.
 - `loader.py`: CSV/JSON → `House` (+ reference dict for dev cases). Must run without photos. Every set exists as both CSV and JSON: read the JSON (typed booleans and nulls), CSV only if the JSON is missing, one row per `building_id` (5 buildings, not 10).
 - `engine.py`: physics, contradictions, Monte Carlo, traffic light, next question, installer brief.
+- `engine_tracer.py`: frozen copy of the original engine; `app.py` uses it per building only when `engine.py` fails. Never edit.
 - `calibrate.py`: fit k on the 3 dev cases (one parameter, geometric mean of log ratios), leave-one-out.
 - `extract.py` (P0-b): wizard inputs (text, exterior photo, radiator photo, bill, listing) → `House` via per-mission tool-use schemas; resize photos to 1568 px JPEG before sending; cache by content hash.
 - `app.py`: Streamlit, tabs `🏠 Homeowner` / `📊 Evaluation` / `🔧 Installer`.
-- `data/buildings_dev.*` and `data/buildings_eval.*` (organiser files, do not edit), `data/notes_cache.json`, `data/pipe_photos/` (organiser photos + `labels.json`); `assets/demo/` (fictional demo inputs with expected values, committed; regenerate with its script); `samples/`; `docs/` (`docs/challenge/` = organiser pages, do not edit); `requirements.txt`; `.streamlit/secrets.toml` (gitignored).
+- `data/buildings_dev.*` and `data/buildings_eval.*` (organiser files, do not edit), `data/notes_cache.json`, `data/baseline_results.json` (engine regression snapshot, `python loader.py --save-baseline`), `data/pipe_photos/` (organiser photos + `labels.json`); `assets/demo/` (fictional demo inputs with expected values, committed; regenerate with its script); `samples/`; `docs/` (`docs/challenge/` = organiser pages, do not edit); `requirements.txt`; `.streamlit/secrets.toml` (gitignored).
 
 ## Interface contract
 
@@ -379,6 +380,7 @@ Source of truth: the design canvas "HP-Ready homeowner flow" and its files in `d
 - Streamlit reruns the script on every click: cache `parse_notes` and `extract` by content hash, keep the house in `st.session_state`, never call the API twice for the same input.
 - Store extracted numbers only; never keep raw bills, names or addresses.
 - One feature at a time, then `streamlit run app.py` on the happy path. Short explanations, straight to code.
+- When engine.py changes: python loader.py --compare-baseline, then check_result shows nothing; save a new baseline only for intended changes.
 
 ## Demo (P0 only, default)
 

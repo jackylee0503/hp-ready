@@ -97,30 +97,95 @@ def buildings():
     return load_buildings()
 
 
+def _tracer():
+    """Frozen copy of the original engine (engine_tracer.py), used per building when engine.py fails."""
+    try:
+        import engine_tracer
+        return engine_tracer
+    except Exception:
+        return None
+
+
+def _eng_attr(name: str):
+    """Optional engine extra (next_question, handover_pdf, ALWAYS_CHECKS): engine.py first, else the tracer."""
+    for m in (engine, _tracer()):
+        if m is not None and hasattr(m, name):
+            return getattr(m, name)
+    return None
+
+
+def _mtime(name: str) -> float:
+    try:
+        return (ROOT / name).stat().st_mtime
+    except OSError:
+        return 0.0
+
+
+def engine_key() -> str:
+    """Part of the _run cache key: editing engine.py while the app runs must not serve stale results."""
+    return f"engine.py@{_mtime('engine.py')}|engine_tracer.py@{_mtime('engine_tracer.py')}|import_ok={engine is not None}"
+
+
+def _brief(mod, h: House) -> Result:
+    r = mod.evaluate(h)
+    if hasattr(mod, "installer_brief"):
+        r = mod.installer_brief(h, r)
+    if not isinstance(r, Result):
+        r = Result.model_validate(r if isinstance(r, dict) else r.model_dump())
+    return r
+
+
 @st.cache_data(show_spinner=False)
-def _run(house_json: str) -> str:
+def _run(house_json: str, eng_key: str) -> dict:
+    """{"result": json, "engine": "main"|"tracer", "error": str|None}. Main engine first, tracer if it fails."""
     h = House.model_validate_json(house_json)
-    r = engine.evaluate(h)
-    if hasattr(engine, "installer_brief"):
-        r = engine.installer_brief(h, r)
-    return r.model_dump_json()
+    err = f"import failed ({ENGINE_ERR})" if engine is None else None
+    if engine is not None:
+        try:
+            return {"result": _brief(engine, h).model_dump_json(), "engine": "main", "error": None}
+        except Exception as e:
+            err = f"{type(e).__name__}: {e}"
+    tr = _tracer()
+    if tr is None:
+        raise RuntimeError(err or "no engine")
+    try:
+        return {"result": _brief(tr, h).model_dump_json(), "engine": "tracer", "error": err}
+    except Exception as e2:
+        raise RuntimeError(f"{err}; tracer also failed ({type(e2).__name__}: {e2})") from e2
 
 
 ENGINE_ERRS: dict[str, str] = {}               # building id -> last evaluate error (shown small in Evaluation)
+ENGINE_USED: dict[str, dict] = {}              # building id -> {"engine": "main"|"tracer", "error": str|None}
 
 
 def evaluate(h: House, quiet: bool = False) -> Result | None:
-    if engine is None:
-        return None
+    bid = str(h.building_id)
     try:
-        r = Result.model_validate_json(_run(h.model_dump_json()))
-        ENGINE_ERRS.pop(str(h.building_id), None)
+        out = _run(h.model_dump_json(), engine_key())
+        r = Result.model_validate_json(out["result"])
+        ENGINE_ERRS.pop(bid, None)
+        ENGINE_USED[bid] = {"engine": out["engine"], "error": out["error"]}
         return r
     except Exception as e:
-        ENGINE_ERRS[str(h.building_id)] = str(e)
+        ENGINE_ERRS[bid] = str(e)
+        ENGINE_USED.pop(bid, None)
         if not quiet:
             st.caption(f"Engine error for {h.building_id}: {e}")
         return None
+
+
+def on_tracer(bid) -> bool:
+    key = "None" if bid == "Homeowner house" else str(bid)   # the homeowner house has no building_id
+    return (ENGINE_USED.get(key) or {}).get("engine") == "tracer"
+
+
+def tracer_chip(bid) -> str:
+    """Tiny muted chip next to a building id when its result came from the frozen tracer engine."""
+    if not on_tracer(bid):
+        return ""
+    return ('<span title="engine.py failed for this building; showing the frozen tracer engine" '
+            'style="font-size:10px;font-weight:600;color:var(--muted);border:1px solid var(--line);border-radius:999px;'
+            'padding:1px 6px;margin-left:6px;vertical-align:middle">tracer</span>')
 
 # ---------------------------------------------------------------- formatting
 
@@ -401,7 +466,7 @@ def always_checks(r: Result | None) -> list[str]:
     """Checks done at every visit: r.always_checks first, else engine.ALWAYS_CHECKS, else the spec defaults."""
     if r is not None and r.always_checks:
         return list(r.always_checks)
-    return list(getattr(engine, "ALWAYS_CHECKS", None) or DEFAULT_ALWAYS_CHECKS)
+    return list(_eng_attr("ALWAYS_CHECKS") or DEFAULT_ALWAYS_CHECKS)
 
 
 FLAG_SRC = {"notes": "Notes", "area_rooms": "Area vs. room count", "not_documented": "Not documented",
@@ -490,6 +555,8 @@ def answer_card(h: House, r: Result | None, key: str):
         st.button(r.next_step.label, key=f"next_{key}", type="primary", width="stretch")
         if r.next_step.detail:
             st.caption(r.next_step.detail)
+    if on_tracer(h.building_id):
+        st.caption("Computed with the backup engine.")
 
 # ---------------------------------------------------------------- tabs
 
@@ -595,7 +662,7 @@ def eval_table(res, sel: str) -> str:
             b = r.heat_load_bill_kw.p50
             load_sub = "no bill" if b is None else f"bill {b:.1f} · {pct_diff(load, b)}"
         body.append(
-            f'<tr{tr}><td class="ev-td"{first}><b>{esc(bid)}</b><span class="ev-sub">{"dev" if ref else "held-out"}</span></td>'
+            f'<tr{tr}><td class="ev-td"{first}><b>{esc(bid)}</b>{tracer_chip(bid)}<span class="ev-sub">{"dev" if ref else "held-out"}</span></td>'
             f'<td class="ev-td">{pill(r.best_color, r.best_color.capitalize())} {refmark}</td>'
             f'<td class="ev-td">{stacked_bar(r.p_green, r.p_yellow, r.p_red)}<span class="ev-sub num">{conf}</span></td>'
             f'<td class="ev-td num">{t(fl.p50)}<span class="ev-sub">{flow_span(fl.p10, fl.p90)}</span></td>'
@@ -797,6 +864,46 @@ def contract_lines(res) -> list[str]:
     return out
 
 
+def fallback_lines(res) -> list[str]:
+    """One muted line per building whose result came from the tracer because engine.py failed."""
+    if engine is None and any(on_tracer(bid) for bid, *_ in res):
+        return [f"New engine failed to import ({(ENGINE_ERR or '')[:120]}), showing the tracer result for all buildings"]
+    return [f"{bid}: new engine failed ({(ENGINE_USED[str(bid)]['error'] or '')[:120]}), showing the tracer result"
+            for bid, *_ in res if on_tracer(bid)]
+
+
+def baseline_section(res):
+    """Rows only for buildings that moved against data/baseline_results.json (python loader.py --save-baseline)."""
+    try:
+        from loader import baseline_moved, baseline_rows, compare_baseline, load_baseline
+        saved = load_baseline()
+        if not saved:
+            return
+        by_id = {bid: r for bid, _, _, r in res}
+        cur = baseline_rows([(bid, h, ref) for bid, h, ref, _ in res], lambda h: by_id.get(str(h.building_id)))
+        rows = [x for x in compare_baseline(cur, saved) if x["building_id"] in by_id and not x["missing"]
+                and not x["error"] and baseline_moved(x)]
+    except Exception as e:
+        st.caption(f"Baseline compare not available ({e}).")
+        return
+    if not rows:
+        return
+    lines = []
+    for x in rows:
+        col = (f"{(x['color_saved'] or '?').capitalize()} → {(x['color_now'] or '?').capitalize()}"
+               if x["color_changed"] else (x["color_now"] or "?").capitalize())
+        parts = [f"<b>{esc(x['building_id'])}</b> {esc(col)}"]
+        if x["flow_delta"] is not None:
+            parts.append(f"flow {x['flow_saved']:.1f} → {x['flow_now']:.1f} °C ({x['flow_delta']:+.1f})")
+        if x["load_delta"] is not None:
+            parts.append(f"load {x['load_saved']:.1f} → {x['load_now']:.1f} kW")
+        if x["visit_changed"]:
+            parts.append(f"visit {esc(str(x['visit_saved']))} → {esc(str(x['visit_now']))}")
+        lines.append(f'<div class="num">{" · ".join(parts)}</div>')
+    st.html('<div style="font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:2px;margin-top:6px">'
+            '<div style="font-weight:600">Compared with the saved baseline</div>' + "".join(lines) + '</div>')
+
+
 def tab_evaluation():
     B = buildings()
     res = [(bid, h, ref, evaluate(h, quiet=True)) for bid, h, ref in B]
@@ -827,8 +934,9 @@ def tab_evaluation():
     st.session_state["eval_last"] = sel
     with table_slot:
         st.html(eval_table(res, sel))
-        for line in contract_lines(res):
+        for line in fallback_lines(res) + contract_lines(res):
             st.caption(line)
+        baseline_section(res)
 
     bid, h, ref, r = next(x for x in res if x[0] == sel)
     if r is None:
@@ -1046,7 +1154,7 @@ def tab_homeowner():
                          on_change=conflict_picked, args=(c["field"], [va, vb]))
                 asked += 1
             try:
-                q = engine.next_question(home_house()) if engine is not None and hasattr(engine, "next_question") else None
+                q = _eng_attr("next_question")(home_house()) if _eng_attr("next_question") else None
             except Exception:
                 q = None
             if q and asked < 2:
@@ -1106,9 +1214,9 @@ def request_panel(h: House, r: Result, key: str):
         st.session_state["request_sent"] = {"name": name.strip(), "contact": contact.strip(), "postcode": plz.strip(),
                                             "date": prev.get("date") or date.today().strftime("%d %b %Y").lstrip("0")}
     pdf = None
-    if engine is not None and hasattr(engine, "handover_pdf"):
+    if _eng_attr("handover_pdf"):
         try:
-            pdf = engine.handover_pdf(h, r, {"name": name, "contact": contact, "postcode": plz})
+            pdf = _eng_attr("handover_pdf")(h, r, {"name": name, "contact": contact, "postcode": plz})
         except Exception as e:
             st.caption(f"PDF not available: {e}")
     if pdf:
@@ -1348,7 +1456,7 @@ def lead_card(bid: str, r: Result | None, selected: bool) -> str:
         line = f"{kw(r.heat_load_kw.p50)} · {flow_big(r.required_flow_temp_c.p50)} · score {r.lead_score or 0:.2f}"
     return (f'<div class="lead-card{" sel" if selected else ""}">'
             f'<span style="display:flex;justify-content:space-between;align-items:center;gap:8px">'
-            f'<b style="font-size:15px">{esc(bid)}</b>{right}</span>'
+            f'<b style="font-size:15px">{esc(bid)}{tracer_chip(bid)}</b>{right}</span>'
             f'<span class="num" style="font-size:12px;color:var(--muted)">{esc(line)}</span></div>')
 
 
@@ -1487,13 +1595,13 @@ def tab_installer():
         top_l.html('<div style="display:flex;flex-direction:column;gap:10px;min-width:0">'
                    '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">'
                    f'<h1 style="margin:0;padding:0;font-size:30px;font-weight:700;letter-spacing:-0.02em;color:var(--ink)">{esc(bid)}</h1>'
-                   f'{pill(r.best_color, visit_pill_text(r), filled=True, size="13px")}</div>'
+                   f'{pill(r.best_color, visit_pill_text(r), filled=True, size="13px")}{tracer_chip(bid)}</div>'
                    f'<div style="font-size:16px;color:#3A4A66">{esc(installer_meta(h))}</div></div>')
         with top_r.container(horizontal=True, horizontal_alignment="right", key=f"inst_actions_{_lead_key(bid)}"):
             pdf = None
-            if engine is not None and hasattr(engine, "handover_pdf"):
+            if _eng_attr("handover_pdf"):
                 try:
-                    pdf = engine.handover_pdf(h, r, {})
+                    pdf = _eng_attr("handover_pdf")(h, r, {})
                 except Exception:
                     pdf = None
             if pdf:

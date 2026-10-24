@@ -227,5 +227,19 @@ The app reads these `Result` fields; none may stay empty for a building with cor
 
 - [ ] Run `streamlit run app.py` on `main` → Evaluation tab shows 5 rows, no "–" in those columns.
 
+## Structured output and safety nets
+
+**Structured fields.** Fill numbers and kinds; the app writes the sentences (all in `schema.py`):
+`options` (list of `Option`: kind `radiators` / `insulation` / `pipe_loop` / `none`, `add_rated_kw_55/60`, `rated_kw_today`, `loss_cut_pct`), `radiators` (`RadiatorSummary`: count, `size_assumed`, `rated_kw`, `needed_rated_kw_55/60`, `share`, `margin_pct`), `flags` (list of `Flag`: one sentence `text`, `src`, `kind`; no "Check on site:" prefix, never an always-check), `always_checks` (checks done at every visit). Empty → the app falls back to the text fields.
+
+**Contract check.** `schema.check_result(h, r)` returns a list of problems (empty = fine). The Evaluation tab prints them as small grey lines.
+
+**Safety nets while you swap the engine.**
+- `engine_tracer.py` is a frozen copy of the original engine. If your `engine.py` fails to import or raises for a building, the app shows the tracer result for that building with a "tracer" chip and a grey line saying why. Don't edit it. Fix the error it names.
+- `data/baseline_results.json` is a snapshot of colour, probabilities, flow p10/p50/p90, load, visit type and lead score per building.
+  - `python loader.py --compare-baseline`: see what moved (`!!` = colour changed). The Evaluation tab shows the same when a colour changes, flow p50 moves ≥ 1 °C or load ≥ 0.3 kW.
+  - `python loader.py --save-baseline`: save a new snapshot, only after a change you meant to make.
+- Routine after each engine change: `--compare-baseline` → explain every `!!` → no `check_result` lines in Evaluation → save the baseline only if the change was intended.
+
 **Cut order if late (from the end):** Task 11 detail → secondary contradiction rules in Task 8 → Task 9 wording. Never cut Task 6 (Monte Carlo).
 **Not in this plan:** step 10 `quote_request` / `handover_pdf` (who writes them is agreed with Junwoo when P0-c starts).

@@ -1,0 +1,82 @@
+{
+ "B-01": {
+  "best_color": "green",
+  "verdict_basis": "likely_suitable",
+  "p_green": 0.514,
+  "p_yellow": 0.176,
+  "p_red": 0.31,
+  "flow_p10": 45.2,
+  "flow_p50": 54.7,
+  "flow_p90": 83.4,
+  "load_p50": 11.08,
+  "load_bill_p50": 2.4,
+  "visit_type": "visit_with_parts",
+  "lead_score": 0.331,
+  "flag_count": 13
+ },
+ "B-02": {
+  "best_color": "green",
+  "verdict_basis": "likely_suitable",
+  "p_green": 1.0,
+  "p_yellow": 0.0,
+  "p_red": 0.0,
+  "flow_p10": 35.5,
+  "flow_p50": 37.4,
+  "flow_p90": 39.3,
+  "load_p50": 9.3,
+  "load_bill_p50": 6.07,
+  "visit_type": "visit_with_parts",
+  "lead_score": 0.7,
+  "flag_count": 8
+ },
+ "B-03": {
+  "best_color": "yellow",
+  "verdict_basis": "checks_remain",
+  "p_green": 0.31,
+  "p_yellow": 0.226,
+  "p_red": 0.464,
+  "flow_p10": 47.7,
+  "flow_p50": 59.0,
+  "flow_p90": 91.4,
+  "load_p50": 13.93,
+  "load_bill_p50": 16.6,
+  "visit_type": "visit_with_parts",
+  "lead_score": 0.364,
+  "flag_count": 9
+ },
+ "B-04": {
+  "best_color": "red",
+  "verdict_basis": "obstacle",
+  "p_green": 0.01,
+  "p_yellow": 0.088,
+  "p_red": 0.902,
+  "flow_p10": 60.2,
+  "flow_p50": 73.2,
+  "flow_p90": 110.9,
+  "load_p50": 14.05,
+  "load_bill_p50": 9.5,
+  "visit_type": "hold",
+  "lead_score": 0.076,
+  "flag_count": 7
+ },
+ "B-05": {
+  "best_color": "green",
+  "verdict_basis": "likely_suitable",
+  "p_green": 0.678,
+  "p_yellow": 0.08,
+  "p_red": 0.242,
+  "flow_p10": 41.7,
+  "flow_p50": 49.8,
+  "flow_p90": 74.0,
+  "load_p50": 8.83,
+  "load_bill_p50": 11.13,
+  "visit_type": "visit_with_parts",
+  "lead_score": 0.364,
+  "flag_count": 13
+ },
+ "_meta": {
+  "engine_sha256": "896e8286c9ee2b0b",
+  "date": "2026-10-24T11:30:24",
+  "k": 1.01
+ }
+}

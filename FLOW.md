@@ -45,6 +45,8 @@ photos ──────────┘       │
 | `loader.py` | Junwoo | Reads the 5 organiser buildings into `House`. Numbers by regex; notes facts by AI (cached in `data/notes_cache.json`). Also holds the shared AI call `llm_tool`. |
 | `extract.py` | Junwoo | Homeowner inputs → `House`: one AI call per input ("mission"), cached in `samples/cached_extract.json`. `merge` combines pieces and logs disagreements in `House.conflicts`. |
 | `engine.py` | engine team | The physics: `House` → `Result`. Deterministic (seed 0). |
+| `engine_tracer.py` | nobody (frozen) | Copy of the original engine. The app uses it per building only when `engine.py` fails. Don't edit. |
+| `data/baseline_results.json` | engine team | Snapshot of the key numbers per building, for `python loader.py --compare-baseline`. |
 | `calibrate.py` | engine team | Fits the one tuning number `k` on the 3 dev buildings; leave-one-out errors for the Evaluation tab. |
 | `app.py` | Junwoo | Streamlit UI, three tabs. Never calculates physics; only calls `engine`. |
 
@@ -84,11 +86,30 @@ next_question(h: House) -> str | None                     # optional
 
 Fields the screens read (fill them or the UI shows "–"): `best_color`, `verdict_basis`, `boundary`, `reason`, `p_green/p_yellow/p_red`, `required_flow_temp_c`, `heat_load_kw`, `heat_load_bill_kw`, `jaz_bucket`, `cost_now_eur`, `cost_hp_eur`, `saving_eur`, `contradictions`, `open_checks`, `hints`, `trace`, `visit_type`, `parts`, `installer_checklist`, `path_to_yellow`, `lead_score`, `next_step`.
 
+**Structured fields (preferred).** The engine fills numbers and kinds, the app writes the sentences. If they stay empty the app falls back to reading the text fields above.
+
+- `options`: list of `Option` (kind `radiators` / `insulation` / `pipe_loop` / `none`, with `add_rated_kw_55`, `loss_cut_pct`, …): the ways to reach 55 °C.
+- `radiators`: `RadiatorSummary` (count, assumed size, rated kW today, kW needed at 55 / 60 °C, margin %).
+- `flags`: list of `Flag` (`text`, `src`, `kind`): house-specific issues for the installer. One sentence, no "Check on site:" prefix, never one of the always-checks.
+- `always_checks`: the checks done at every visit (else `engine.ALWAYS_CHECKS`, else the app defaults).
+
+**Contract check.** `schema.check_result(h, r)` lists anything that would show as "–" or nonsense (probabilities not summing to 1, p10 > p50, empty UI fields, red with missing data, …). The Evaluation tab prints its findings as small grey lines under the table. Nothing printed = fine.
+
+**Safety nets.**
+
+- **Tracer fallback.** `engine_tracer.py` is a frozen copy of the original engine. If `engine.py` fails to import, or raises for one building, the app shows the tracer result for that building only, with a small "tracer" chip and a grey line in Evaluation ("B-04: new engine failed (ValueError: …), showing the tracer result"). Don't edit `engine_tracer.py`. If both fail, the building shows "No result".
+- **Baseline.** `data/baseline_results.json` holds the key numbers per building (colour, probabilities, flow p10/p50/p90, load, visit type, lead score).
+  - `python loader.py --compare-baseline`: what moved since the snapshot (`!!` = colour changed).
+  - `python loader.py --save-baseline`: save a new snapshot, **only after an intended change**.
+  - The Evaluation tab shows "Compared with the saved baseline" only when a colour changed, flow p50 moved ≥ 1 °C or load ≥ 0.3 kW.
+- The app's result cache includes the `engine.py` file time, so editing the engine while Streamlit runs is picked up on the next click.
+
 ## 5. Run and check
 
 ```bash
 python engine.py          # 5 buildings + one Rechenweg; expect B-01 green, B-02 green, B-03 yellow, B-04 not green
 python calibrate.py       # k ≈ 1.01, leave-one-out ≈ +20 / −9 / −8 %
+python loader.py --compare-baseline   # after any engine change: what moved vs data/baseline_results.json
 streamlit run app.py      # turn on "Demo mode" (top right): cached reads only, no API needed
 ```
 

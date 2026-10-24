@@ -327,9 +327,129 @@ def load_buildings(path: str = "data/", use_llm: bool = True) -> list[tuple[str,
     return out
 
 
+# ---------------------------------------------------------------- baseline snapshot (engine regression check)
+
+BASELINE = ROOT / "data" / "baseline_results.json"
+
+
+def _brief_fn():
+    """engine.evaluate + installer_brief (lazy import: engine imports loader)."""
+    import engine
+
+    def run(h: House):
+        r = engine.evaluate(h)
+        return engine.installer_brief(h, r) if hasattr(engine, "installer_brief") else r
+    return run
+
+
+def baseline_rows(buildings, evaluate_fn) -> dict:
+    """Per building id: the numbers a demo depends on. evaluate_fn(House) -> Result | None (None = skipped)."""
+    out = {}
+    for bid, h, _ in buildings:
+        try:
+            r = evaluate_fn(h)
+        except Exception as e:
+            out[bid] = {"error": f"{type(e).__name__}: {e}"}
+            continue
+        if r is None:
+            continue
+        fl = r.required_flow_temp_c
+        out[bid] = {"best_color": r.best_color, "verdict_basis": r.verdict_basis,
+                    "p_green": round(r.p_green, 3), "p_yellow": round(r.p_yellow, 3), "p_red": round(r.p_red, 3),
+                    "flow_p10": fl.p10, "flow_p50": fl.p50, "flow_p90": fl.p90,
+                    "load_p50": r.heat_load_kw.p50, "load_bill_p50": r.heat_load_bill_kw.p50,
+                    "visit_type": r.visit_type, "lead_score": round(r.lead_score or 0, 3),
+                    "flag_count": len(r.contradictions) + len(r.installer_checklist)}
+    return out
+
+
+def _delta(a, b):
+    return None if a is None or b is None else b - a
+
+
+def compare_baseline(current: dict, saved: dict) -> list[dict]:
+    """Per building in either set: colour changed?, flow p50 delta (°C), load p50 delta (kW), visit changed?"""
+    rows = []
+    for bid in sorted(k for k in set(current) | set(saved) if not k.startswith("_")):
+        c, s = current.get(bid) or {}, saved.get(bid) or {}
+        rows.append({"building_id": bid, "missing": "current" if not c else "saved" if not s else None,
+                     "error": c.get("error"),
+                     "color_saved": s.get("best_color"), "color_now": c.get("best_color"),
+                     "color_changed": bool(c and s) and c.get("best_color") != s.get("best_color"),
+                     "flow_saved": s.get("flow_p50"), "flow_now": c.get("flow_p50"),
+                     "flow_delta": _delta(s.get("flow_p50"), c.get("flow_p50")),
+                     "load_saved": s.get("load_p50"), "load_now": c.get("load_p50"),
+                     "load_delta": _delta(s.get("load_p50"), c.get("load_p50")),
+                     "visit_saved": s.get("visit_type"), "visit_now": c.get("visit_type"),
+                     "visit_changed": bool(c and s) and c.get("visit_type") != s.get("visit_type")})
+    return rows
+
+
+def baseline_moved(row: dict, flow_k: float = 1.0, load_kw: float = 0.3) -> bool:
+    """True if a compare row is worth showing: missing/error, colour or visit change, or a big enough shift."""
+    return bool(row["missing"] or row["error"] or row["color_changed"] or row["visit_changed"]
+                or (row["flow_delta"] is not None and abs(row["flow_delta"]) >= flow_k)
+                or (row["load_delta"] is not None and abs(row["load_delta"]) >= load_kw))
+
+
+def load_baseline(path: Path = BASELINE) -> dict:
+    try:
+        return json.loads(Path(path).read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def save_baseline(buildings=None, path: Path = BASELINE) -> dict:
+    from datetime import datetime
+    from schema import DEFAULT
+    buildings = buildings if buildings is not None else load_buildings()
+    rows = baseline_rows(buildings, _brief_fn())
+    eng = ROOT / "engine.py"
+    rows["_meta"] = {"engine_sha256": hashlib.sha256(eng.read_bytes()).hexdigest()[:16] if eng.exists() else None,
+                     "date": datetime.now().isoformat(timespec="seconds"), "k": DEFAULT.k}
+    save_json(Path(path), rows)
+    return rows
+
+
+def _fmt(v, nd=1):
+    return "–" if v is None else f"{v:.{nd}f}"
+
+
+def print_compare(path: Path = BASELINE) -> list[dict]:
+    saved = load_baseline(path)
+    if not saved:
+        print(f"No baseline at {path}. Run: python loader.py --save-baseline")
+        return []
+    rows = compare_baseline(baseline_rows(load_buildings(), _brief_fn()), saved)
+    m = saved.get("_meta", {})
+    print(f"Baseline {m.get('date')} engine {m.get('engine_sha256')} k={m.get('k')}")
+    print(f"{'':2} {'id':6} {'colour':18} {'flow p50 °C':22} {'load p50 kW':20} visit")
+    for r in rows:
+        if r["missing"] or r["error"]:
+            print(f"!! {r['building_id']:6} {r['error'] or 'missing in ' + r['missing']}")
+            continue
+        mark = "!!" if r["color_changed"] else ("~ " if baseline_moved(r) else "  ")
+        col = f"{r['color_saved']}->{r['color_now']}" if r["color_changed"] else r["color_now"]
+        fd, lo = r["flow_delta"], r["load_delta"]
+        fl = f"{_fmt(r['flow_saved'])}->{_fmt(r['flow_now'])} (" + ('–' if fd is None else f'{fd:+.1f}') + ")"
+        ld = f"{_fmt(r['load_saved'], 2)}->{_fmt(r['load_now'], 2)} (" + ('–' if lo is None else f'{lo:+.2f}') + ")"
+        vis = f"{r['visit_saved']}->{r['visit_now']}" if r["visit_changed"] else str(r["visit_now"])
+        print(f"{mark} {r['building_id']:6} {col:18} {fl:22} {ld:20} {vis}")
+    n = sum(baseline_moved(r) for r in rows)
+    print("No differences." if not n else f"{n} building(s) moved.")
+    return rows
+
+
 if __name__ == "__main__":
     import sys
     use_llm = "--no-llm" not in sys.argv
+    if "--save-baseline" in sys.argv:
+        rows = save_baseline()
+        print(f"Saved {len(rows) - 1} buildings to {BASELINE.relative_to(ROOT)} ({rows['_meta']})")
+        sys.exit(0)
+    if "--compare-baseline" in sys.argv:
+        print_compare()
+        sys.exit(0)
     for bid, h, ref in load_buildings(use_llm=use_llm):
         o = h.notes_obs
         print(f"{bid} {h.build_year} {h.living_area_m2} m² {h.fuel_type} kWh={h.annual_fuel_kwh} L={h.annual_fuel_liters} "
