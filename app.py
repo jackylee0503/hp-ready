@@ -265,7 +265,9 @@ def chips(h: House) -> str:
         if v is None:
             continue
         unsure = h.confidence.get(f, 1) < 0.5
-        out.append(f'<span class="chip{" unsure" if unsure else ""}">{fmt.format(v).replace("_", " ")}{"?" if unsure else ""}</span>')
+        text = ({"unrenovated": "not renovated", "partially": "partly renovated", "fully": "fully renovated"}.get(v, v)
+                if f == "renovation" else fmt.format(v).replace("_", " "))
+        out.append(f'<span class="chip{" unsure" if unsure else ""}">{text}{"?" if unsure else ""}</span>')
     return "".join(out)
 
 
