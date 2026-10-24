@@ -208,7 +208,7 @@ def evaluate(h: House, quiet: bool = False) -> Result | None:
 
 def engine_used(bid) -> str | None:
     """"module" | "main" | "tracer" | None: which engine produced this building's result."""
-    key = "None" if bid == "Homeowner house" else str(bid)   # the homeowner house has no building_id
+    key = "Homeowner" if bid == "Homeowner house" else str(bid)   # the homeowner house is built with building_id "Homeowner"
     return (ENGINE_USED.get(key) or {}).get("engine")
 
 
@@ -222,7 +222,7 @@ def on_module(bid) -> bool:
 
 def brief_from_baseline(bid) -> bool:
     """The module left the installer fields empty and the baseline installer_brief filled them."""
-    key = "None" if bid == "Homeowner house" else str(bid)
+    key = "Homeowner" if bid == "Homeowner house" else str(bid)
     return (ENGINE_USED.get(key) or {}).get("brief") == "baseline"
 
 

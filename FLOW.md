@@ -126,6 +126,7 @@ python engine.py          # 5 buildings + one Rechenweg; expect B-01 green, B-02
 python calibrate.py       # k ≈ 1.01, leave-one-out ≈ +20 / −9 / −8 %
 python loader.py --compare-baseline   # after any engine change: what moved vs data/baseline_results.json
 streamlit run app.py      # turn on "Demo mode" (top right): cached reads only, no API needed
+streamlit run app.py --server.fileWatcherType auto   # same, with hot reload while you edit app.py (off by default: Streamlit Cloud hit an inotify limit)
 ```
 
 ## 6. Team rules
