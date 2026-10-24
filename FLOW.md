@@ -57,7 +57,8 @@ House ──orchestrator: calculation module (contradictions + Result) | engine.
 | `loader.py` | Junwoo | Reads the 5 organiser buildings into `House`. Numbers by regex; notes facts by AI (cached in `data/notes_cache.json`). Also holds the shared AI call `llm_tool`. |
 | `extract.py` | Junwoo | The page-4 LLM parser (only on "Read it") and the fallback reader for bill and radiator photo: cache only by default (`samples/cached_extract.json`, `cache_only=True`), a live AI call only with `HP_LLM_FALLBACK=1`. `obs_to_house` turns a module's `BillObs`/`RadiatorObs` into a `House`; `merge` combines pieces and logs disagreements in `House.conflicts`. |
 | `orchestrator.py` | Junwoo | Calls the three modules through `REGISTRY` (override per module with `HP_MODULE_<NAME>="pkg.mod:func"`), never raises, falls back to the demo cache (`extract.py`, cache only) / `engine.py`. Switches `HP_MODULES=0`, `HP_MODULES_ONLY=1`, `HP_LLM_FALLBACK=1`. `python orchestrator.py` = which modules are live. |
-| `modules/pipe_classifier.py` (ML 1), `modules/bill_recognizer.py` (ML 2), `modules/calculation.py` (ML 3) | ML team | `run(request) -> reply` (CONTRACT.md). Skeletons today (`IMPLEMENTED = False` → app uses the fallbacks). CLI: `python -m modules.<name> < request.json`. |
+| `modules/pipe_classifier.py` (ML 1), `modules/bill_recognizer.py` (ML 2), `modules/calculation.py` (ML 3) | ML team | `run(request) -> reply` (CONTRACT.md). `IMPLEMENTED = False` → app uses the fallbacks (bill_recognizer is implemented). CLI: `python -m modules.<name> < request.json`. |
+| `modules/screening.py` | Junwoo (ported from the teammate package) | Default `calculation` slot: `engine.py` result + best/worst-case bounds, radiator-size bounds, water flow, 2 extra standard checks. Hands every request to `modules/calculation.py` once that one is implemented. |
 | `engine.py` | engine team | The physics: `House` → `Result`. Deterministic (seed 0). |
 | `engine_tracer.py` | nobody (frozen) | Copy of the original engine. The app uses it per building only when `engine.py` fails. Don't edit. |
 | `data/baseline_results.json` | engine team | Snapshot of the key numbers per building, for `python loader.py --compare-baseline`. |
@@ -82,7 +83,7 @@ House ──orchestrator: calculation module (contradictions + Result) | engine.
 | The tuning number `k` | `calibrate.py` (then `schema.py` `Params.k` default) | Run `python calibrate.py` |
 | Prices, JAZ | `schema.py` constants | Fixed by the challenge: don't change |
 | How a bill / radiator photo is read | `modules/bill_recognizer.py`, `modules/pipe_classifier.py` (contract: `CONTRACT.md`) | Fallback reader: demo cache `samples/cached_extract.json` only; the live prompt (`extract.py` `SYSTEM`, `HINT`) runs only with `HP_LLM_FALLBACK=1` |
-| Replace the whole calculation | `modules/calculation.py` (or `HP_MODULE_CALCULATION="pkg.mod:func"`) | Check: `CONTRACT.md` §5; on failure the app falls back to `engine.py` per building |
+| Replace the whole calculation | `modules/calculation.py`, then `IMPLEMENTED = True` (the default slot `modules/screening.py` hands over to it), or `HP_MODULE_CALCULATION="pkg.mod:func"` | Check: `CONTRACT.md` §5; on failure the app falls back to `engine.py` per building |
 | Page-1 form fields, example houses (cards: form + photo + bill + page-4 text) | `app.py` `FORM`, `EXAMPLES` (`FORM_EXAMPLE` = the Webers), `form_house`, `pick_example` | |
 | Installer tab on/off (out of the MVP) | env `HP_SHOW_INSTALLER=1` (`app.py` `show_installer`) | |
 | Red emphasis in Evaluation | `app.py` `RED_RISK` (30 %), `red_risk_cell`, `red_calls_card` | |

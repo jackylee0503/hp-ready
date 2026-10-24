@@ -46,7 +46,7 @@ Then ML module 3 "calculation": finds internal contradictions + produces the Res
 | --- | --- | --- | --- | --- | --- |
 | 1 | `pipe_classifier` (`modules/pipe_classifier.py`) | `{"file": {...}, "hint": {"build_year": int \| null}}` (hint optional) | `RadiatorObs`: `pipe_system` `"two_pipe"` \| `"single_pipe"` \| `null` (unsure), `confidence["pipe_system"]`, `evidence["pipe_system"]` (short reason), optional `panel_type` / `radiator_size`, `missing` / `retake_tip` when the photo is unusable | `contracts/pipe.schema.json` | `pipe_output_two_pipe.json`, `pipe_output_single_pipe.json`, `pipe_output_unknown.json` |
 | 2 | `bill_recognizer` (`modules/bill_recognizer.py`) | `{"file": {...}, "fuel_hint": "gas" \| null}` | `BillObs`: OCR or any method; raw numbers as printed; no conversion. Photo problems come back in its own `missing` / `retake_tip` | `contracts/bill.schema.json` | `bill_output_demo.json` |
-| 3 | `calculation` (`modules/calculation.py`) | `{"house": House, "n": 500, "seed": 0}` | `Result` (§0), including `contradictions` | `contracts/house.schema.json`, `contracts/result.schema.json` | `calc_input_B-04/B-05/form.json` → `calc_output_B-04/B-05.json` |
+| 3 | `calculation` (`modules/calculation.py`; default slot `modules/screening.py` hands over to it once implemented, §6) | `{"house": House, "n": 500, "seed": 0}` | `Result` (§0), including `contradictions` | `contracts/house.schema.json`, `contracts/result.schema.json` | `calc_input_B-04/B-05/form.json` → `calc_output_B-04/B-05.json` |
 
 **The LLM step (4/4) only fills blanks and never asks.** The page-4 free text is read by the LLM parser (`extract.py`, cached) only when the homeowner presses "Read it" (an explicit request). Its `House` carries `source = "notes_llm"`, the lowest merge rank, so it only fills fields still empty after the form, the photo and the bill. When it disagrees with a filled field, nothing is asked: the disagreement is dropped from `House.conflicts` and shown as one muted note under the "We read" chips, e.g. "Not used (already set): living area 140 m² (form says 150 m²)".
 
@@ -221,8 +221,10 @@ After a change to `schema.py`: `python schema.py --export-contracts` regenerates
 ```python
 REGISTRY = {"bill_recognizer": "modules.bill_recognizer:run",
             "pipe_classifier": "modules.pipe_classifier:run",
-            "calculation": "modules.calculation:run"}
+            "calculation": "modules.screening:run"}
 ```
+
+**Calculation slot (2026-10-24).** The default is `modules/screening.py`: `engine.py`'s result unchanged plus best/worst-case bounds over every input corner, what each radiator size would mean, water flow and two extra standard checks (ported from the teammate package `heat_pump_screening`; same EN 442 law, A/B on the 5 buildings: identical colours and numbers). **Hand-over:** as soon as `modules/calculation.py` answers the probe as implemented (`IMPLEMENTED = True`), the screening passes every request to it and returns its reply untouched, success or failure. So the ML team's switch works exactly as before; `HP_MODULE_CALCULATION` still overrides both. `HP_MODULES=0` = plain `engine.py`.
 
 Each entry can be overridden without editing our code: `HP_MODULE_<NAME>="pkg.mod:func"` (`HP_MODULE_PIPE_CLASSIFIER`, `HP_MODULE_BILL_RECOGNIZER`, `HP_MODULE_CALCULATION`), e.g. `HP_MODULE_CALCULATION="ml.predict:run" streamlit run app.py`. Imports are lazy and reloaded when the file's mtime changes, so editing a module while Streamlit runs is picked up on the next click (the app's result cache key includes the module file times).
 
