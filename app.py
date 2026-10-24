@@ -35,6 +35,24 @@ except ImportError:
 
 st.set_page_config(page_title="HP-Ready", page_icon="🔥", layout="wide")
 
+# Browser auto-translation (e.g. Chrome → Korean) rewrites the DOM under React and crashes the app with
+# "NotFoundError: Failed to execute 'removeChild' on 'Node'". Mark the page as not translatable.
+# components.html runs in a same-origin iframe, so it can set the attribute on the parent page.
+try:                                            # never let this guard break the app
+    import streamlit.components.v1 as _components
+    _components.html("""<script>
+try {
+  const d = window.parent.document;
+  d.documentElement.setAttribute("translate", "no");
+  d.documentElement.classList.add("notranslate");
+  if (!d.querySelector('meta[name="google"][content="notranslate"]')) {
+    const m = d.createElement("meta"); m.name = "google"; m.content = "notranslate"; d.head.appendChild(m);
+  }
+} catch (e) {}
+</script>""", height=0)
+except Exception:
+    pass
+
 try:
     import engine
     ENGINE_ERR = None
