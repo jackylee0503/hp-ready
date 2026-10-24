@@ -36,7 +36,7 @@ Status: **draft v2** (`schema.CONTRACT_VERSION = "2-draft"`, 2026-10-24). Owner:
 ```
 Table (House) is filled by:
   1/4 dropdowns + typed integers (homeowner)
-  2/4 radiator photo → ML module 1 "pipe_classifier": single-pipe vs two-pipe
+  2/4 radiator photo → ML module 1 "pipe_classifier": **Claude vision** (cache first, like bill_recognizer); CLIP few-shot behind HP_PIPE_BACKEND=clip, off until `--eval` passes
   3/4 bill (photo/PDF) → module 2 "bill_recognizer": **LLM parser (Claude vision)** → raw bill numbers (decision 2026-10-24: the OCR attempt was not usable)
   4/4 optional free text → LLM parser, ONLY on "Read it", fills ONLY fields still empty after 1-3
 Then ML module 3 "calculation": finds internal contradictions + produces the Result → result screens
@@ -165,6 +165,7 @@ The JSON shapes are the existing Python models in `schema.py`, exported as JSON 
 ## 3. Module by module
 
 ### 1 pipe_classifier → `RadiatorObs`
+Readers (2026-10-24): `HP_PIPE_BACKEND=llm` (default, Claude vision with the cue table below, demo cache first) or `clip` (the teammate's `image_rec.py` + `prototypes.json`; needs torch, transformers and downloaded weights, never downloads inside a call, answers `unsupported` otherwise). Score a reader with `python -m modules.pipe_classifier --eval [--backend clip]` on the 5 labelled photos; switch one on only with 0 wrong and 07 = `null`. Measured: llm 4 right (incl. 07), 1 "can't tell" (10), 0 wrong; clip's own leave-one-out is 0.2.
 Radiator photo → single-pipe vs two-pipe heating. Main output `pipe_system`: `"two_pipe"` | `"single_pipe"` | `null` when unsure (never a guess), with `confidence["pipe_system"]` and `evidence["pipe_system"]` (short reason, e.g. "H-block with side bypass port"). Optional `panel_type` (`"11"`/`"22"`/`"33"`) and `radiator_size` only if it can really tell.
 - Photo unusable (blurry, dark, not a radiator …): `ok: true`, `pipe_system: null`, `missing: {"pipe_system": "blurry" | "not_visible" | "ambiguous" | "wrong_object"}` and a one-sentence `retake_tip`. There is no separate image check.
 - `hint.build_year` (from the form, may be `null`) is context only; never copy it into the reply.

@@ -15,7 +15,7 @@ The LLM only **reads**, and only when the homeowner asks for it. The **decision 
   ```
   Table (House) is filled by:
     1/4 dropdowns + typed integers (homeowner)
-    2/4 radiator photo → ML module 1 "pipe_classifier": single-pipe vs two-pipe
+    2/4 radiator photo → ML module 1 "pipe_classifier": single-pipe vs two-pipe (Claude vision; CLIP few-shot behind HP_PIPE_BACKEND=clip, off until `--eval` passes)
     3/4 bill (photo/PDF) → module 2 "bill_recognizer": **LLM parser (Claude vision)** → raw bill numbers (decision 2026-10-24: the OCR attempt was not usable)
     4/4 optional free text → LLM parser, ONLY on "Read it", fills ONLY fields still empty after 1-3
   Then ML module 3 "calculation": finds internal contradictions + produces the Result → result screens
@@ -26,7 +26,7 @@ The LLM only **reads**, and only when the homeowner asks for it. The **decision 
 
 ## Invariants (hold for any logic, never break)
 
-1. **The LLM is a parser, and optional.** It only fills schema fields from text or images it is given (no verdicts, recommendations or arithmetic), it runs only when the homeowner explicitly asks (pressing "Read it" on free text, or uploading a bill to be read) (e.g. the optional free-text step), and every answer is reachable without it (dropdowns, bill and photo modules, fallbacks).
+1. **The LLM is a parser, and optional.** It only fills schema fields from text or images it is given (no verdicts, recommendations or arithmetic), it runs only when the homeowner explicitly asks (pressing "Read it" on free text, or uploading a bill or a radiator photo to be read) (e.g. the optional free-text step), and every answer is reachable without it (dropdowns, bill and photo modules, fallbacks).
 2. **Unknown stays empty.** Unsure or missing = `null`, never `0` or a guess; every value carries a source and a confidence (0-1). Models must accept `null` inputs.
 3. **One contract.** `schema.py` (exported to `contracts/`, described in `CONTRACT.md`) defines every input and output once. Logic lives behind `orchestrator.py` modules; the UI never computes a verdict or a number, it only renders `Result` fields. Contract changes go through Junwoo and are versioned.
 4. **Every verdict explains itself and its uncertainty.** A colour always comes with probabilities or a range, a one-sentence reason, what is still open, and a trace (calculation steps, or for a learned model its inputs and their contributions) that a judge can follow.
