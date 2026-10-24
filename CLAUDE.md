@@ -16,7 +16,7 @@ The LLM only **reads**, and only when the homeowner asks for it. The **decision 
   Table (House) is filled by:
     1/4 dropdowns + typed integers (homeowner)
     2/4 radiator photo → ML module 1 "pipe_classifier": single-pipe vs two-pipe
-    3/4 bill (photo/PDF) → ML module 2 "bill_recognizer": OCR → raw bill numbers
+    3/4 bill (photo/PDF) → module 2 "bill_recognizer": **LLM parser (Claude vision)** → raw bill numbers (decision 2026-10-24: the OCR attempt was not usable)
     4/4 optional free text → LLM parser, ONLY on "Read it", fills ONLY fields still empty after 1-3
   Then ML module 3 "calculation": finds internal contradictions + produces the Result → result screens
   ```
@@ -26,7 +26,7 @@ The LLM only **reads**, and only when the homeowner asks for it. The **decision 
 
 ## Invariants (hold for any logic, never break)
 
-1. **The LLM is a parser, and optional.** It only fills schema fields from text or images it is given (no verdicts, recommendations or arithmetic), it runs only when the homeowner explicitly asks (e.g. the optional free-text step), and every answer is reachable without it (dropdowns, bill and photo modules, fallbacks).
+1. **The LLM is a parser, and optional.** It only fills schema fields from text or images it is given (no verdicts, recommendations or arithmetic), it runs only when the homeowner explicitly asks (pressing "Read it" on free text, or uploading a bill to be read) (e.g. the optional free-text step), and every answer is reachable without it (dropdowns, bill and photo modules, fallbacks).
 2. **Unknown stays empty.** Unsure or missing = `null`, never `0` or a guess; every value carries a source and a confidence (0-1). Models must accept `null` inputs.
 3. **One contract.** `schema.py` (exported to `contracts/`, described in `CONTRACT.md`) defines every input and output once. Logic lives behind `orchestrator.py` modules; the UI never computes a verdict or a number, it only renders `Result` fields. Contract changes go through Junwoo and are versioned.
 4. **Every verdict explains itself and its uncertainty.** A colour always comes with probabilities or a range, a one-sentence reason, what is still open, and a trace (calculation steps, or for a learned model its inputs and their contributions) that a judge can follow.
@@ -99,7 +99,7 @@ First thing on the day: get the submission deadline and pitch slot. Build time =
 - [x] M1b dev data applied (area-age load, k=1.01, contradiction rules, U-value renovation hint, P0 Monte Carlo → dev 3/3)
 - [x] M1c organiser pages and all 5 buildings in the repo (`docs/challenge/`, `data/`), spec aligned to them (2026-10-23 evening, see `docs/DESIGN.md` decision log).
 - [x] M2 (done 2026-10-23 22:30, user confirmed the key works) **API check (required before the event, LLM notes are P0)**: user pastes `ANTHROPIC_API_KEY = "..."` into `.streamlit/secrets.toml` (and Cloud Secrets if Cloud is used); one real call with `claude-sonnet-5-5` succeeds. If it fails, read the error and check the model ID first. After M2, `data/notes_cache.json` for all 5 buildings can be built tonight (their notes are public, 5 calls); if pre-written work turns out not to be allowed (M5), rebuild it on the day.
-- [x] M3 Cloud first deploy ("HP-Ready (setup)" shows). Now optional (organiser: runs locally in a browser): if used, Secrets with M2, record the URL here: `https://mhdjackymcn.streamlit.app` (Sharing set to public 2026-10-24, checked logged-out), open it in an incognito window; a private-repo app may require login, then switch Sharing to public.
+- [x] M3 Cloud first deploy ("HP-Ready (setup)" shows). Now optional (organiser: runs locally in a browser): if used, Secrets with M2, record the URL here: `https://hp-nuuai.streamlit.app` (redeployed 2026-10-24, public, checked logged-out; old mhdjackymcn retired), open it in an incognito window; a private-repo app may require login, then switch Sharing to public.
 - [ ] M4 demo inputs: done in `assets/demo/` (fictional, labelled: house texts, gas bill as PDF and photo, a sale listing, expected values in its README) plus the 5 labelled radiator photos in `data/pipe_photos/`. Still to take: one exterior photo of a house (no people or number plates); optional: the real SWM sample bill (link in "Extraction missions"). Own photos go in `samples/` (raw files are gitignored).
 - [ ] M5 first 30 minutes on the day: deadline and pitch slot, data terms, **whether pre-written code is allowed** (via `/intake`). If not allowed: keep `app.py` as the empty shell, treat k=1.01, tables and rules as research notes, write code on the day, and cut P0-c and P1 first.
 

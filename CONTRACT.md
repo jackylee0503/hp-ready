@@ -37,7 +37,7 @@ Status: **draft v2** (`schema.CONTRACT_VERSION = "2-draft"`, 2026-10-24). Owner:
 Table (House) is filled by:
   1/4 dropdowns + typed integers (homeowner)
   2/4 radiator photo → ML module 1 "pipe_classifier": single-pipe vs two-pipe
-  3/4 bill (photo/PDF) → ML module 2 "bill_recognizer": OCR → raw bill numbers
+  3/4 bill (photo/PDF) → module 2 "bill_recognizer": **LLM parser (Claude vision)** → raw bill numbers (decision 2026-10-24: the OCR attempt was not usable)
   4/4 optional free text → LLM parser, ONLY on "Read it", fills ONLY fields still empty after 1-3
 Then ML module 3 "calculation": finds internal contradictions + produces the Result → result screens
 ```

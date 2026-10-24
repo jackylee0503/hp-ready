@@ -24,9 +24,9 @@ import sys
 
 MODULE = "bill_recognizer"
 VERSION = "1-draft"
-# TODO(teammate): set to True once run() returns real data. While False the app treats this module as
-# "not available" and uses the cache-only fallback reader (the probe {"probe": True} answers `unsupported`).
-IMPLEMENTED = False
+# Implemented with the LLM bill reader (team decision 2026-10-24: the OCR attempt wasn't usable).
+# The LLM only parses: raw numbers as printed, conversion stays in the calculation. Set False to fall back.
+IMPLEMENTED = True
 MIMES = ("application/pdf", "image/jpeg", "image/png", "image/webp")
 
 
@@ -71,7 +71,18 @@ def run(request: dict) -> dict:
     #   }
     #   return ok(data)
     # Can't read it → return fail("unreadable", "no kWh found")
-    return fail("unsupported", "skeleton: not implemented yet")
+    try:
+        from extract import read_obs        # LLM parser: committed cache first, then one live Claude call
+        with open(f["path"], "rb") as fh:
+            kind, obs = read_obs(fh.read(), f["mime"], "bill")
+    except Exception as e:  # noqa: BLE001  (no key, network, unreadable image …)
+        return fail("unreadable", f"{type(e).__name__}: {e}")
+    if kind != "bill":                       # a sale listing / energy certificate, not a bill
+        return fail("unsupported", f"this looks like a {kind}, not a bill")
+    data = obs.model_dump(mode="json")
+    warnings = [] if any(data.get(k) is not None for k in ("kwh_printed", "m3", "liters")) else \
+        ["no consumption number found on the bill"]
+    return ok(data, warnings)
 
 
 if __name__ == "__main__":
