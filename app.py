@@ -2081,6 +2081,96 @@ def sharp_image(src, width: int, where=st):
         where.image(src, width=width)
 
 
+# ---------------------------------------------------------------- 3D house (decoration only, never decides anything)
+HOUSE_3D_STOPS = {1: "house", 2: "radiator", 3: "bill", 4: "notes", 5: "answer"}
+
+
+def house_3d_on() -> bool:
+    return os.environ.get("HP_HOUSE_3D", "1").strip().lower() not in ("0", "false", "no", "off")
+
+
+def house_3d(step: int, color: str | None = None, height: int = 330):
+    """Illustrative cutaway house; a glowing marker follows the wizard step. Three.js from jsDelivr in the
+    browser; if it cannot load, a one-line note shows and the app is unaffected."""
+    if not house_3d_on():
+        return
+    try:
+        import json as _json
+        import streamlit.components.v1 as _c
+        stop = HOUSE_3D_STOPS.get(step, "house")
+        tint = {"green": "0x1E7A46", "yellow": "0xF2B705", "red": "0xB42318"}.get(color or "", "0xFF9B21")
+        doc = HOUSE_3D_HTML.replace("__STOP__", _json.dumps(stop)).replace("__TINT__", tint) \
+                           .replace("__H__", str(height - 6))
+        _c.html(doc, height=height, scrolling=False)
+    except Exception:
+        pass
+
+
+HOUSE_3D_HTML = """<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+html,body{margin:0;background:transparent;color:#14213D;font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;overflow:hidden}
+#wrap{position:relative;height:__H__px;width:100%;border-radius:16px;overflow:hidden;border:1px solid #E2E6EA;
+ background:linear-gradient(#e4eef4,#f8fbfc 64%,#e3ede0)}
+#scene{position:absolute;inset:0}
+#status{position:absolute;left:12px;top:12px;background:#14213D;color:#fff;padding:7px 11px;border-radius:10px;font-size:12px;font-weight:600}
+#help{position:absolute;bottom:10px;left:12px;background:#ffffffdd;padding:5px 9px;border-radius:8px;font-size:11px;color:#4A5565}
+#err{display:none;position:absolute;inset:40% 8%;text-align:center;color:#4A5565;font-size:13px}
+canvas{display:block}
+</style></head><body><div id="wrap"><div id="scene"></div><div id="status">Your home</div>
+<div id="help">Drag to turn · scroll to zoom · illustration</div><div id="err">3D view unavailable (offline).</div></div>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"}}</script>
+<script type="module">
+const active=__STOP__;
+const labels={house:"Your house",radiator:"Radiator and pipes",bill:"Energy bill",notes:"Anything else",answer:"Your answer"};
+const status=document.getElementById('status');status.textContent=labels[active]||labels.house;
+try{
+ const THREE=await import('three');
+ const {OrbitControls}=await import('https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/controls/OrbitControls.js');
+ const root=document.getElementById('scene');
+ const scene=new THREE.Scene();scene.background=new THREE.Color(0xe9f1f5);
+ const camera=new THREE.PerspectiveCamera(38,root.clientWidth/root.clientHeight,.1,100);
+ const renderer=new THREE.WebGLRenderer({antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+ renderer.setSize(root.clientWidth,root.clientHeight);renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;root.appendChild(renderer.domElement);
+ const controls=new OrbitControls(camera,renderer.domElement);controls.enableDamping=true;controls.maxPolarAngle=Math.PI*.48;controls.minDistance=9;controls.maxDistance=30;
+ scene.add(new THREE.HemisphereLight(0xe9f5ff,0x59634f,2.1));const sun=new THREE.DirectionalLight(0xfff0d7,2.6);sun.position.set(8,14,9);sun.castShadow=true;scene.add(sun);
+ const mat=(color,roughness=.85,transparent=false,opacity=1)=>new THREE.MeshStandardMaterial({color,roughness,transparent,opacity,side:THREE.DoubleSide});
+ const M={wall:mat(0xf1e7d5),inner:mat(0xd9c8ab),floor:mat(0xb78657),floor2:mat(0xcbb99a),glass:mat(0x80c7d9,.35,true,.65),roof:mat(0x556d7b,.8,true,.26),white:mat(0xf7f9f5),rad:mat(0xe4e9e8,.45),pipe:mat(0xb87333,.5),wood:mat(0x795239),grass:mat(0x92b879),dark:mat(0x304451),unit:mat(0x5d7783),electric:mat(0xd8d9d4),paper:mat(0xfff6d3)};
+ function box(n,x,y,z,sx,sy,sz,m,cast=true){const o=new THREE.Mesh(new THREE.BoxGeometry(sx,sy,sz),m);o.name=n;o.position.set(x,y,z);o.castShadow=cast;o.receiveShadow=true;scene.add(o);return o;}
+ box('garden',0,-.32,0,22,.25,18,M.grass,false);
+ box('slab',0,.02,0,10,.24,8,M.floor);box('slab2',0,3.02,0,10,.22,8,M.floor2);
+ for(const b of [.14,3.13]){box('rear',0,b+1.35,-3.92,10,2.7,.18,M.wall);box('l',-4.91,b+1.35,0,.18,2.7,8,M.wall);box('r',4.91,b+1.35,0,.18,2.7,8,M.wall);
+  box('fr',-4.25,b+1.35,3.92,1.5,2.7,.18,M.wall);box('fr',4.25,b+1.35,3.92,1.5,2.7,.18,M.wall);}
+ box('p',0,1.42,-.3,.14,2.45,7.1,M.inner);box('p',2.6,1.42,-2.55,4.6,2.45,.14,M.inner);box('p',-2.45,1.42,-2.05,.14,2.45,3.7,M.inner);
+ box('p',0,4.38,-.65,.13,2.35,6.3,M.inner);box('p',2.3,4.38,-2.55,4.6,2.35,.13,M.inner);
+ box('sofa',-2.5,.55,1.6,2.8,.55,.9,M.unit);box('table',-2.4,.42,.2,1.5,.2,.8,M.wood);
+ box('counter',-3.7,.65,-2.75,1.6,.75,.65,M.white);box('dining',-1.5,.85,-2.6,1.6,.15,1.0,M.wood);
+ box('paper',-1.4,.95,-2.55,.5,.02,.7,M.paper);box('washer',3.4,.65,-3.2,.85,.9,.75,M.white);
+ box('bed',-2.4,3.65,-1.5,2.3,.35,2.0,M.white);box('bed',2.9,3.65,-1.55,2.0,.35,1.8,M.white);
+ for(let i=0;i<7;i++)box('stair',.45+i*.2,.2+i*.36,2.35-i*.42,1.2,.16,.55,M.wood);
+ function radiator(x,y,z,rot=0){const g=new THREE.Group();g.position.set(x,y,z);g.rotation.y=rot;scene.add(g);const pn=new THREE.Mesh(new THREE.BoxGeometry(1.15,.72,.13),M.rad);pn.castShadow=true;g.add(pn);
+  for(let i=0;i<6;i++){const f=new THREE.Mesh(new THREE.BoxGeometry(.045,.62,.16),M.white);f.position.x=-.49+i*.196;g.add(f)}
+  for(const px of [-.42,.42]){const pp=new THREE.Mesh(new THREE.CylinderGeometry(.035,.035,.45,10),M.pipe);pp.position.set(px,-.55,.02);g.add(pp)}}
+ radiator(-4.55,.95,1.2,Math.PI/2);radiator(-4.55,.95,-2.65,Math.PI/2);radiator(2.9,3.95,3.65,Math.PI);
+ for(const [x,y,z,w,h] of [[-2.2,2,-3.81,1.7,.9],[2.2,2,-3.81,1.7,.9],[-2,4.8,-3.81,1.7,.9],[2,4.8,-3.81,1.7,.9]])box('win',x,y,z,w,h,.045,M.glass,false);
+ box('panel',4.55,1.7,-2.5,.24,.95,.72,M.electric);box('meter',4.48,1.1,-2.5,.16,.32,.28,M.white);
+ box('pad',6.6,-.08,2.0,2.35,.18,1.75,M.dark);box('hp',6.6,.78,2.0,1.35,1.45,.8,M.unit);
+ const fan=new THREE.Mesh(new THREE.CylinderGeometry(.43,.43,.08,32),M.dark);fan.rotation.x=Math.PI/2;fan.position.set(6.6,.82,2.42);scene.add(fan);
+ const ra=box('roof',-2.45,6.75,0,5.35,.18,9.0,M.roof);ra.rotation.z=.36;const rb=box('roof',2.45,6.75,0,5.35,.18,9.0,M.roof);rb.rotation.z=-.36;
+ const A={house:[0,2.2,0],radiator:[-4.4,1.0,1.2],bill:[-1.4,1.3,-2.55],notes:[0,4.2,0],answer:[6.6,1.9,2.0]};
+ const a=new THREE.Vector3(...(A[active]||A.house));
+ const mm=new THREE.MeshStandardMaterial({color:__TINT__,emissive:__TINT__,emissiveIntensity:.9});
+ const marker=new THREE.Mesh(new THREE.SphereGeometry(.22,24,18),mm);marker.position.copy(a);scene.add(marker);
+ const ring=new THREE.Mesh(new THREE.TorusGeometry(.42,.045,10,40),mm);ring.position.copy(a);ring.rotation.x=Math.PI/2;scene.add(ring);
+ marker.visible=ring.visible=!(active==='house'||active==='notes');
+ const V={house:[[0,2.4,0],[3.5,7,16.5]],radiator:[[-3.4,1.2,0],[5,1.6,9.5]],bill:[[-1.6,1.0,-1.6],[2.5,1.7,10]],
+  notes:[[0,3.0,0],[-4,8,17]],answer:[[2.2,2.2,0.5],[5,6,15.5]]}[active]||[[0,2.4,0],[3.5,7,16.5]];
+ const tgt=new THREE.Vector3(...V[0]);camera.position.copy(tgt.clone().add(new THREE.Vector3(...V[1])));controls.target.copy(tgt);
+ new ResizeObserver(()=>{camera.aspect=root.clientWidth/root.clientHeight;camera.updateProjectionMatrix();renderer.setSize(root.clientWidth,root.clientHeight)}).observe(root);
+ (function loop(){requestAnimationFrame(loop);const s=1+.11*Math.sin(performance.now()*.004);marker.scale.setScalar(s);ring.scale.setScalar(s);controls.update();renderer.render(scene,camera)})();
+}catch(e){document.getElementById('err').style.display='block';}
+</script></body></html>"""
+
+
 STEPS = ["Your house", "Radiator", "Bill", "Check & answer"]
 
 
@@ -2162,6 +2252,7 @@ def tab_homeowner():
                 ss.step = 1
                 st.rerun()
             r = evaluate(h)
+            ss["_house3d_color"] = getattr(r, "best_color", None) if r is not None else None
             answer_card(h, r, "home")
             if r is not None and ss.get("ask_home"):
                 request_panel(h, r, "home")
@@ -2173,6 +2264,7 @@ def tab_homeowner():
             st.rerun()
     with right:
         h = home_house()                              # reads in this run happened after the first merge
+        house_3d(ss.step, ss.get("_house3d_color") if ss.step > 4 else None)
         seen, out = set(), []
         rows = [(f, lb) for f, lb, *_ in FORM] + [("monthly_advance_eur", "Monthly payment"), ("pipe_system", "Pipes"),
                                                   ("kwh_printed", "Use on the bill")]
