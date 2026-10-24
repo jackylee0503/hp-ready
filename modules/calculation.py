@@ -4,18 +4,29 @@ wood stove all winter, rooms vs area, …). Input conflicts (the same field from
 says gas) are not its job: the UI asks the homeowner before calculation, the House arrives with the resolved values,
 and House.conflicts lists them for context.
 
-Contract: CONTRACT.md §1-§3, schemas contracts/house.schema.json and contracts/result.schema.json,
-examples contracts/examples/calc_input_B-04/B-05/form.json → calc_output_B-04/B-05.json (today's engine.py).
+MVP (CONTRACT.md "MVP: what `calculation` must return") — the reply `data` needs ONLY:
+    best_color                         "green" | "yellow" | "red"
+    p_green, p_yellow, p_red           0..1, sum ≈ 1 (p_red ≥ 0.5 ⇒ best_color "red")
+    heat load (watts)                  quantity {"key": "heat_load_kw", "p10", "p50", "p90"} (kW)
+                                       or legacy "heat_load_kw": {"p10", "p50", "p90"}
+    flow temperature                   quantity {"key": "flow_temp_c", "p10", "p50", "p90"} (°C, coldest day)
+                                       or legacy "required_flow_temp_c": {"p10", "p50", "p90"}
+Minimal valid `data`: contracts/examples/calc_output_minimal.json. Everything else (reason, verdict_basis,
+open_checks, explanations, trace, contradictions, model_info, costs, installer fields, …) is optional: the UI uses it
+when present and hides the section otherwise (a missing reason becomes a neutral sentence from colour + temperature).
+
+Contract: CONTRACT.md "MVP" + §1-§3, schemas contracts/house.schema.json and contracts/result.schema.json,
+fuller examples contracts/examples/calc_input_B-04/B-05/form.json → calc_output_B-04/B-05.json (today's engine.py).
 Called in-process by orchestrator.py as run(request) -> reply. Plain Python, no new dependencies. Limit 20 s.
-Deterministic: use `seed` for the Monte Carlo.
+Deterministic: use `seed` for any sampling.
 CLI test:  python -m modules.calculation < contracts/examples/calc_input_B-05.json
 
 Request: {"house": House (dict, see contracts/house.schema.json), "n": 500, "seed": 0}
 
-Example of a successful reply:
-    {"ok": True, "module": "calculation", "version": "1-draft", "warnings": [],
-     "data": <contents of contracts/examples/calc_output_B-05.json>}
-Check it: CONTRACT.md §5 (Result.model_validate + schema.check_result).
+Example of a successful (minimal) reply:
+    {"ok": True, "module": "calculation", "version": "0.1", "warnings": [],
+     "data": <contents of contracts/examples/calc_output_minimal.json>}
+Check it: CONTRACT.md §5 (Result.model_validate + schema.check_result → [] when the MVP core is fine).
 """
 from __future__ import annotations
 
@@ -49,11 +60,21 @@ def run(request: dict) -> dict:
     n = request.get("n") if isinstance(request.get("n"), int) else 500
     seed = request.get("seed") if isinstance(request.get("seed"), int) else 0
 
-    # TODO(teammate): compute the Result from h. Rules: CLAUDE.md "Engine" (fixed prices and JAZ, 55/60 °C bands,
-    #   missing data → yellow "cannot_tell_yet", never red). Fuel precedence: bill raw values (kwh_printed, else
-    #   m3 × zustandszahl × brennwert, liters × 10, scaled to 365 days) → annual_fuel_kwh → annual_fuel_liters × 10
-    #   → monthly_advance_eur. Tip: `from schema import House, Result; House.model_validate(h)` gives typed access,
-    #   and `Result(...).model_dump(mode="json")` gives a valid reply. Fields the UI reads (else it shows "–"):
+    # TODO(teammate): compute the MVP core from h first — that alone is a complete reply:
+    #   data = {
+    #       "best_color": "green",                                   # "green" | "yellow" | "red"
+    #       "p_green": 0.72, "p_yellow": 0.18, "p_red": 0.10,        # sum to 1
+    #       "quantities": [
+    #           {"key": "heat_load_kw", "p10": 7.8, "p50": 9.3, "p90": 11.0},   # kW
+    #           {"key": "flow_temp_c", "p10": 48.0, "p50": 53.0, "p90": 58.0},  # °C on the coldest day
+    #       ],
+    #   }
+    #   return ok(data)
+    # Rules: CLAUDE.md "Engine" (55/60 °C bands; missing data → yellow, never red). Fuel precedence: bill raw values
+    #   (kwh_printed, else m3 × zustandszahl × brennwert, liters × 10, scaled to 365 days) → annual_fuel_kwh →
+    #   annual_fuel_liters × 10 → monthly_advance_eur. Tip: `from schema import House, Result; House.model_validate(h)`
+    #   gives typed access. Then IMPLEMENTED = True.
+    # Optional extras (the UI uses them when present, hides the section otherwise):
     #   data = {
     #       "building_id": h.get("building_id"),
     #       "best_color": "green",           # "green" | "yellow" | "red" (always set)

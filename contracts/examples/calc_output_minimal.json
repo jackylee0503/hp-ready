@@ -1,0 +1,20 @@
+{
+  "best_color": "green",
+  "p_green": 0.72,
+  "p_yellow": 0.18,
+  "p_red": 0.1,
+  "quantities": [
+    {
+      "key": "heat_load_kw",
+      "p10": 7.8,
+      "p50": 9.3,
+      "p90": 11.0
+    },
+    {
+      "key": "flow_temp_c",
+      "p10": 48.0,
+      "p50": 53.0,
+      "p90": 58.0
+    }
+  ]
+}
