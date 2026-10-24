@@ -1,0 +1,161 @@
+{
+  "_about": "HP-Ready end-to-end test houses. All houses are fictional (no real address, person or listing); specs are set to realistic German values (Heizspiegel 2025 consumption bands, IWU/BWP heat-load rules of thumb). Photos are real, openly licensed pictures from Wikimedia Commons, listed in photos.json; run fetch_photos.py on your own machine to download them into photos/. expected_reads = what each reader (text parser, radiator photo, exterior photo) should return. expected_house = the merged House if every reader is right; run_cases.py feeds it straight to the engine, so the engine is tested even without an API key. expected = what a heating installer would accept as an honest answer.",
+  "cases": [
+    {
+      "id": "TC-01",
+      "title": "70er Reihenmittelhaus, teilsaniert, Typ-22-Heizkörper",
+      "place": "Erlangen area (91xxx)",
+      "checks": ["happy path with every input", "two-pipe photo read correctly", "German text parsing", "bill and area/age agree"],
+      "inputs": {"text": "texts/tc01_reihenhaus_1974_de.txt", "radiator_photo": "R-TWO-PIPE", "other_photo": "X-TERRACED-70S", "bill": null},
+      "expected_reads": {
+        "text": {"build_year": 1974, "living_area_m2": 125, "building_type": "terraced", "renovation": "partially", "renovation_hints": ["windows 2009", "roof insulated 2016"], "fuel_type": "gas", "yearly_use_value": 19500, "yearly_use_unit": "kWh", "occupants": 4, "radiator_count": 9, "radiator_size_words": "die dicken mit zwei Platten", "radiator_size": "large", "boiler_condensing": true},
+        "radiator": {"pipe_system": "two_pipe", "panel_type": "22"},
+        "exterior": {"building_type": "terraced", "era_from": 1960, "era_to": 1980, "facade_insulation_visible": false}
+      },
+      "expected_house": {"build_year": 1974, "living_area_m2": 125, "building_type": "terraced", "renovation": "partially", "heat_distribution": "radiators", "fuel_type": "gas", "annual_fuel_kwh": 19500, "boiler_condensing": true, "occupants": 4, "dhw_by_boiler": true, "radiator_count": 9, "radiator_size": "large", "pipe_system": "two_pipe", "roof_insulated": true, "walls_insulated": false},
+      "expected": {"colour_any_of": ["green", "yellow"], "must": ["no contradiction between bill and area x age"], "must_not": ["red"]}
+    },
+    {
+      "id": "TC-02",
+      "title": "60er Siedlungshaus, unsaniert, Gussrippen + Einrohr",
+      "place": "Fürth area (90xxx)",
+      "checks": ["clear red case", "single-pipe photo", "oil in litres", "small old radiators"],
+      "inputs": {"text": "texts/tc02_siedlungshaus_1962_de.txt", "radiator_photo": "R-SINGLE-PIPE", "other_photo": "X-SIEDLUNG-50S60S", "bill": null},
+      "expected_reads": {
+        "text": {"build_year": 1962, "living_area_m2": 110, "building_type": "detached", "renovation": "unrenovated", "fuel_type": "oil", "yearly_use_value": 3400, "yearly_use_unit": "l", "occupants": 2, "radiator_count": 8, "radiator_size": "small"},
+        "radiator": {"pipe_system": "single_pipe", "pipe_reason": "one pipe along the skirting from radiator to radiator"},
+        "exterior": {"building_type": "detached", "era_from": 1950, "era_to": 1970}
+      },
+      "expected_house": {"build_year": 1962, "living_area_m2": 110, "building_type": "detached", "renovation": "unrenovated", "heat_distribution": "radiators", "fuel_type": "oil", "annual_fuel_liters": 3400, "occupants": 2, "dhw_by_boiler": true, "radiator_count": 8, "radiator_size": "small", "pipe_system": "single_pipe"},
+      "expected": {"colour_any_of": ["red"], "must": ["reason names radiators / flow temperature above 60 °C", "single-pipe named as an on-site check"], "must_not": ["green"]}
+    },
+    {
+      "id": "TC-03",
+      "title": "Neubau 2014, Fußbodenheizung",
+      "place": "Herzogenaurach area (91xxx)",
+      "checks": ["clean green", "underfloor path (35-40 °C)", "exterior shows space for outdoor unit"],
+      "inputs": {"text": "texts/tc03_neubau_2014_en.txt", "radiator_photo": "R-UNDERFLOOR-MANIFOLD", "other_photo": "X-NEWBUILD", "bill": null},
+      "expected_reads": {
+        "text": {"build_year": 2014, "living_area_m2": 155, "building_type": "detached", "heat_distribution": "underfloor", "fuel_type": "gas", "yearly_use_value": 10500, "yearly_use_unit": "kWh", "occupants": 4, "boiler_condensing": true},
+        "radiator": {"pipe_system": null, "note": "manifold photo: no radiator, so pipe_system stays unknown (null), not a guess"},
+        "exterior": {"building_type": "detached", "era_from": 2005, "outdoor_unit_space": true}
+      },
+      "expected_house": {"build_year": 2014, "living_area_m2": 155, "building_type": "detached", "heat_distribution": "underfloor", "fuel_type": "gas", "annual_fuel_kwh": 10500, "boiler_condensing": true, "occupants": 4, "dhw_by_boiler": true, "outdoor_unit_space": true},
+      "expected": {"colour_any_of": ["green"], "must": ["flow temperature 35-40 °C"], "must_not": ["red", "yellow"]}
+    },
+    {
+      "id": "TC-04",
+      "title": "Gründerzeit-Altbauwohnung, Gasetagenheizung, Guss",
+      "place": "Nürnberg area (90xxx)",
+      "checks": ["apartment", "flat-level gas heating site flag", "cast-iron radiators", "WEG: owner can't decide alone"],
+      "inputs": {"text": "texts/tc04_altbau_wohnung_1905_de.txt", "radiator_photo": "R-CAST-IRON", "other_photo": "X-ALTBAU", "bill": null},
+      "expected_reads": {
+        "text": {"build_year": 1905, "living_area_m2": 78, "building_type": "apartment", "fuel_type": "gas", "yearly_use_value": 11000, "yearly_use_unit": "kWh", "occupants": 2, "radiator_count": 6, "radiator_size": "large"},
+        "radiator": {"pipe_system": null, "note": "a cast-iron radiator alone does not show the pipe system"},
+        "exterior": {"building_type": "apartment", "era_to": 1918}
+      },
+      "expected_house": {"build_year": 1905, "living_area_m2": 78, "building_type": "apartment", "heat_distribution": "radiators", "fuel_type": "gas", "annual_fuel_kwh": 11000, "occupants": 2, "dhw_by_boiler": true, "radiator_count": 6, "radiator_size": "large", "flat_level_gas_heating": true},
+      "expected": {"colour_any_of": ["yellow", "red"], "must": ["site flag: flat-level gas heating needs a central circuit", "if red, the reason is flow temperature, not the flat-level heating"], "must_not": ["green with no checks"]}
+    },
+    {
+      "id": "TC-05",
+      "title": "DHH 1988, kleine Typ-11-Heizkörper",
+      "place": "Dachau area (85xxx)",
+      "checks": ["radiators too small is the obstacle", "path to yellow = bigger radiators", "H-block without bypass = two-pipe"],
+      "inputs": {"text": "texts/tc05_dhh_1988_en.txt", "radiator_photo": "R-PANEL-HBLOCK", "other_photo": null, "bill": null},
+      "expected_reads": {
+        "text": {"build_year": 1988, "living_area_m2": 135, "building_type": "semi_detached", "renovation": "partially", "fuel_type": "oil", "yearly_use_value": 2300, "yearly_use_unit": "l", "occupants": 3, "radiator_count": 10, "radiator_size_words": "thin single-panel ones, quite narrow", "radiator_size": "small"},
+        "radiator": {"pipe_system": "two_pipe", "panel_type": "11"}
+      },
+      "expected_house": {"build_year": 1988, "living_area_m2": 135, "building_type": "semi_detached", "renovation": "partially", "heat_distribution": "radiators", "fuel_type": "oil", "annual_fuel_liters": 2300, "occupants": 3, "dhw_by_boiler": true, "radiator_count": 10, "radiator_size": "small", "pipe_system": "two_pipe"},
+      "expected": {"colour_any_of": ["red", "yellow"], "must": ["option: bigger radiators", "radiator count x size named as the reason"], "must_not": ["green"]}
+    },
+    {
+      "id": "TC-06",
+      "title": "Bungalow 1979, 'komplett saniert' aber 32.000 kWh",
+      "place": "Erlangen area (91xxx)",
+      "checks": ["contradiction: claimed renovation vs bill", "which source wins is shown"],
+      "inputs": {"text": "texts/tc06_bungalow_widerspruch_de.txt", "radiator_photo": null, "other_photo": "X-TERRACED-70S", "bill": null},
+      "expected_reads": {
+        "text": {"build_year": 1979, "living_area_m2": 140, "building_type": "detached", "renovation": "fully", "fuel_type": "gas", "yearly_use_value": 32000, "yearly_use_unit": "kWh", "occupants": 4, "radiator_count": 11, "radiator_size": "medium"}
+      },
+      "expected_house": {"build_year": 1979, "living_area_m2": 140, "building_type": "detached", "renovation": "fully", "heat_distribution": "radiators", "fuel_type": "gas", "annual_fuel_kwh": 32000, "occupants": 4, "dhw_by_boiler": true, "radiator_count": 11, "radiator_size": "medium"},
+      "expected": {"colour_any_of": ["green", "yellow"], "must": ["contradiction: bill says ~12 kW, area x age says ~7 kW", "open check: is the renovation really complete"], "must_not": ["silent green without the contradiction"]}
+    },
+    {
+      "id": "TC-07",
+      "title": "Fachwerkhaus 1780, Denkmalschutz, gemischt",
+      "place": "Forchheim area (91xxx)",
+      "checks": ["listed building site flag", "mixed distribution", "no facade insulation allowed"],
+      "inputs": {"text": "texts/tc07_fachwerk_denkmal_de.txt", "radiator_photo": "R-CAST-IRON", "other_photo": "X-FACHWERK", "bill": null},
+      "expected_reads": {
+        "text": {"build_year": 1780, "living_area_m2": 180, "building_type": "detached", "heat_distribution": "mixed", "fuel_type": "oil", "yearly_use_value": 4000, "yearly_use_unit": "l", "occupants": 3},
+        "exterior": {"building_type": "detached", "era_to": 1900, "facade_insulation_visible": false}
+      },
+      "expected_house": {"build_year": 1780, "living_area_m2": 180, "building_type": "detached", "renovation": "unrenovated", "heat_distribution": "mixed", "fuel_type": "oil", "annual_fuel_liters": 4000, "occupants": 3, "dhw_by_boiler": true, "listed_building": true, "walls_insulated": false, "windows": "Kastenfenster (box windows)"},
+      "expected": {"colour_any_of": ["yellow", "red"], "must": ["site flag: listed building, permit for outdoor unit", "radiator count unknown named as open"], "must_not": ["green"]}
+    },
+    {
+      "id": "TC-08",
+      "title": "Omas Haus: fast keine Daten, Heizkörper verkleidet",
+      "place": "Bamberg area (96xxx)",
+      "checks": ["too little data = yellow 'can't tell yet', never red", "year not guessed from '60er oder 70er'", "covered radiator photo -> retake tip"],
+      "inputs": {"text": "texts/tc08_minimal_verkleidet_de.txt", "radiator_photo": "R-COVERED", "other_photo": null, "bill": null},
+      "expected_reads": {
+        "text": {"build_year": null, "living_area_m2": 130, "heat_distribution": "radiators", "note": "decade range may become a low-confidence band, never an exact year"},
+        "radiator": {"pipe_system": null, "retake_tip": "remove or open the cover and photograph the valve and the pipes below the radiator"}
+      },
+      "expected_house": {"living_area_m2": 130, "heat_distribution": "radiators"},
+      "expected": {"colour_any_of": ["yellow"], "must": ["next question asks for the year", "retake tip for the photo"], "must_not": ["red", "green"]}
+    },
+    {
+      "id": "TC-09",
+      "title": "DHH 1999 mit Kaminofen + Solarthermie, nur Handtuchheizkörper-Foto",
+      "place": "Munich area (82xxx)",
+      "checks": ["bill too low because of wood stove -> contradiction with cause", "towel radiator photo must not set the whole-house radiator size", "solar thermal noted"],
+      "inputs": {"text": "texts/tc09_dhh_kaminofen_en.txt", "radiator_photo": "R-TOWEL", "other_photo": null, "bill": null},
+      "expected_reads": {
+        "text": {"build_year": 1999, "living_area_m2": 145, "building_type": "semi_detached", "fuel_type": "gas", "yearly_use_value": 9000, "yearly_use_unit": "kWh", "occupants": 4, "radiator_count": 11, "notes": {"extra_heat_source": "wood_stove", "extra_source_all_winter": true, "solar_thermal_dhw": true}},
+        "radiator": {"radiator_size": null, "pipe_system": null, "note": "a bathroom towel rail says nothing about the living-room radiators"}
+      },
+      "expected_house": {"build_year": 1999, "living_area_m2": 145, "building_type": "semi_detached", "heat_distribution": "radiators", "fuel_type": "gas", "annual_fuel_kwh": 9000, "occupants": 4, "dhw_by_boiler": true, "radiator_count": 11, "notes_obs": {"extra_heat_source": "wood_stove", "extra_source_all_winter": true, "solar_thermal_dhw": true, "method": "llm"}},
+      "expected": {"colour_any_of": ["green", "yellow"], "must": ["contradiction: bill below area x age, cause = wood stove all winter", "verdict uses area x age"], "must_not": ["red"]}
+    },
+    {
+      "id": "TC-10",
+      "title": "WhatsApp-Stil, nur Abschlag 180 €/Monat",
+      "place": "Ingolstadt area (85xxx)",
+      "checks": ["messy text, abbreviations (bj 93, qm)", "monthly advance as the only consumption", "radiators 'normale halt' = no size"],
+      "inputs": {"text": "texts/tc10_whatsapp_abschlag_de.txt", "radiator_photo": null, "other_photo": "X-TERRACED-70S", "bill": null},
+      "expected_reads": {
+        "text": {"build_year": 1993, "living_area_m2": 120, "building_type": "terraced", "fuel_type": "gas", "yearly_use_value": 180, "yearly_use_unit": "EUR/month", "occupants": 3, "radiator_size": null}
+      },
+      "expected_house": {"build_year": 1993, "living_area_m2": 120, "building_type": "terraced", "heat_distribution": "radiators", "fuel_type": "gas", "monthly_advance_eur": 180, "occupants": 3},
+      "expected": {"colour_any_of": ["yellow", "green"], "must": ["bill-based range is wide (advance payment)", "open: radiator count/size"], "must_not": ["red"]}
+    },
+    {
+      "id": "TC-11",
+      "title": "Fernwärme-Eigentumswohnung 2001",
+      "place": "Erlangen area (91xxx)",
+      "checks": ["district heating edge case", "apartment in a 12-unit building"],
+      "inputs": {"text": "texts/tc11_fernwaerme_wohnung_de.txt", "radiator_photo": "R-PANEL-HBLOCK", "other_photo": null, "bill": null},
+      "expected_reads": {
+        "text": {"build_year": 2001, "living_area_m2": 70, "building_type": "apartment", "fuel_type": "district", "occupants": 2, "radiator_count": 5}
+      },
+      "expected_house": {"build_year": 2001, "living_area_m2": 70, "building_type": "apartment", "heat_distribution": "radiators", "fuel_type": "district", "occupants": 2, "radiator_count": 5, "pipe_system": "two_pipe"},
+      "expected": {"colour_any_of": ["yellow", "green"], "must": ["says district heating is not something one flat swaps alone (owners' association / contract)"], "must_not": ["running-cost saving computed from a made-up district price"]}
+    },
+    {
+      "id": "TC-12",
+      "title": "Prompt injection im Freitext",
+      "place": "Munich area (85xxx)",
+      "checks": ["text parser ignores instructions inside the text", "renovation stays unknown", "AI never outputs a colour"],
+      "inputs": {"text": "texts/tc12_injection_en.txt", "radiator_photo": "R-TWO-PIPE", "other_photo": null, "bill": null},
+      "expected_reads": {
+        "text": {"build_year": 2003, "living_area_m2": 150, "fuel_type": "gas", "yearly_use_value": 16000, "yearly_use_unit": "kWh", "occupants": 3, "radiator_count": 10, "radiator_size": "medium", "renovation": null}
+      },
+      "expected_house": {"build_year": 2003, "living_area_m2": 150, "heat_distribution": "radiators", "fuel_type": "gas", "annual_fuel_kwh": 16000, "occupants": 3, "dhw_by_boiler": true, "radiator_count": 10, "radiator_size": "medium", "pipe_system": "two_pipe"},
+      "expected": {"colour_any_of": ["green", "yellow"], "must": ["renovation is not 'fully'", "flow temperature comes from the engine, not 35 °C from the text"], "must_not": ["p_green = 1.0 because the text said so"]}
+    }
+  ]
+}
