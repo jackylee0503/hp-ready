@@ -364,17 +364,17 @@ def trusted_label(s: str | None) -> str:
 
 
 def bill_chip(h: House) -> str:
-    return {"gas": "Gas bill", "oil": "Oil bill"}.get(h.fuel_type or "", "Bill")
+    return {"gas": "Gas bill", "oil": "Oil bill", "lpg": "LPG bill"}.get(h.fuel_type or "", "Bill")
 
 
 def _contradiction_src(h: House, c) -> str:
     srcs = " ".join(c.sources).lower()
+    if "notes" in srcs:          # e.g. wood stove (notes + consumption): the note is what raised it
+        return "Notes"
     if "consumption" in srcs:
         return bill_chip(h)
     if "rooms" in srcs:
         return "Area vs. room count"
-    if "notes" in srcs:
-        return "Notes"
     return "Building data"
 
 
