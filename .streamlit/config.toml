@@ -6,6 +6,6 @@ textColor = "#14213D"
 font = "sans serif"
 
 [server]
-# Streamlit Cloud: the file watcher hit "inotify instance limit reached" and the app stopped updating.
-# Locally, run with --server.fileWatcherType auto if you want hot reload while editing app.py.
-fileWatcherType = "none"
+# Streamlit Cloud: "auto" hit "inotify instance limit reached"; "none" kept running old code after a git pull
+# (the build id changed, the screens didn't). "poll" reloads changed files without inotify.
+fileWatcherType = "poll"

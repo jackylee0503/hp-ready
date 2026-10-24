@@ -8,3 +8,4 @@ pillow<12
 # Streamlit Cloud (Linux, Python 3.14): pyarrow<22 has no wheel for 3.14 and fails to build (no cmake).
 pyarrow<22; sys_platform == "win32"
 pyarrow; sys_platform != "win32"
+# restart marker: 2026-10-24 file watcher poll
