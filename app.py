@@ -1816,8 +1816,13 @@ def tab_homeowner():
         elif ss.step == 2:
             st.markdown("## Your biggest radiator")
             st.caption("From the side, pipes in view.")
-            read_upload(st.file_uploader("Radiator photo", type=["jpg", "jpeg", "png", "webp"], key="up_rad"),
-                        "radiator", "radiator")
+            up_col, ex_col = st.columns([3, 2])
+            with ex_col:                                 # what a usable photo looks like
+                st.image(str(ROOT / "data/pipe_photos/05_zweirohr-vermutet_kompakt.jpeg"), width=200)
+                st.caption("Like this: the whole radiator from the side, the valve and both pipes in view.")
+            with up_col:
+                read_upload(st.file_uploader("Radiator photo", type=["jpg", "jpeg", "png", "webp"], key="up_rad"),
+                            "radiator", "radiator")
             photos = sorted(p.name for p in (ROOT / "data/pipe_photos").glob("*.jp*g"))
             if ss.get("rad_example") not in ["–"] + photos:   # seed once (widget state is dropped off-page)
                 ss["rad_example"] = ss.get("tag_radiator_ex") if ss.get("tag_radiator_ex") in photos else "–"
@@ -1832,8 +1837,13 @@ def tab_homeowner():
         elif ss.step == 3:
             st.markdown("## Bill or listing?")
             st.caption("Optional. Photo, PDF or screenshot.")
-            read_upload(st.file_uploader("Bill or listing", type=["jpg", "jpeg", "png", "webp", "pdf"], key="up_doc"),
-                        "doc", "bill")
+            up_col, ex_col = st.columns([3, 2])
+            with ex_col:                                 # what a usable bill looks like
+                st.image(str(ROOT / DEMO_BILL), width=200)
+                st.caption("Like this: the page with your yearly use in kWh or m³. You can cover your name and address.")
+            with up_col:
+                read_upload(st.file_uploader("Bill or listing", type=["jpg", "jpeg", "png", "webp", "pdf"],
+                                             key="up_doc"), "doc", "bill")
             if st.button("Use the demo bill photo"):
                 ss["tag_doc_demo"] = DEMO_BILL
                 do_read("doc", (ROOT / DEMO_BILL).read_bytes(), "image/jpeg", "bill")
