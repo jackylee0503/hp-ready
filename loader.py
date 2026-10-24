@@ -48,9 +48,14 @@ def llm_tool(content: list, tools: list, system: str, max_tokens: int = 2000) ->
     key = api_key()
     if not key:
         raise RuntimeError("no API key")
-    client = anthropic.Anthropic(api_key=key, timeout=60, max_retries=1)
-    msg = client.messages.create(model=MODEL, max_tokens=max_tokens, system=system, tools=tools,
-                                 tool_choice={"type": "any"},
+    client = anthropic.Anthropic(api_key=key, timeout=90, max_retries=1)
+    # Sonnet 5.5 rejects forced tool_choice (any/tool): use auto and require the call in the prompt.
+    # Thinking is always on and counts toward max_tokens, so leave room; low effort is enough for parsing.
+    msg = client.messages.create(model=MODEL, max_tokens=max(max_tokens, 8000),
+                                 system=system + " Always answer by calling exactly one of the provided tools; "
+                                                 "never answer in plain text.",
+                                 tools=tools, tool_choice={"type": "auto"},
+                                 output_config={"effort": "low"},
                                  messages=[{"role": "user", "content": content}])
     for block in msg.content:
         if block.type == "tool_use":
@@ -79,7 +84,9 @@ NOTES_SYSTEM = (
     "Unknown → null. Never infer, never compute, never judge heat-pump suitability. "
     "For every field you fill, put a short verbatim quote in evidence[field] and a confidence 0-1 in confidence[field]. "
     "A negated statement ('No additional insulation', 'without low-e coating', 'No renovation documented') "
-    "is not a measure: for insulation, set insulation_measures = [] with its quote. "
+    "is not a measure: for insulation, set insulation_measures = [] with its quote only when the notes explicitly "
+    "say there is no insulation; 'No renovation documented' / 'No renovation information' means unknown, so leave "
+    "insulation_measures null. "
     "u_values keys: windows, wall, roof, floor, basement (W/m²K). "
     "solar_thermal_dhw: true only if the notes say hot water; if they only say 'solar thermal system present', "
     "set true with confidence ≤ 0.6 and say so in the evidence.")

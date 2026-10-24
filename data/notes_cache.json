@@ -1,0 +1,108 @@
+{
+ "97da4cd271b76609": {
+  "u_values": {},
+  "extra_heat_source": "wood_stove",
+  "extra_source_all_winter": true,
+  "solar_thermal_dhw": true,
+  "unheated_area_note": null,
+  "insulation_measures": null,
+  "glazing": null,
+  "building_type": null,
+  "evidence": {
+   "extra_heat_source": "A wood stove is used all winter.",
+   "extra_source_all_winter": "A wood stove is used all winter.",
+   "solar_thermal_dhw": "Solar thermal system for hot water present."
+  },
+  "confidence": {
+   "extra_heat_source": 0.97,
+   "extra_source_all_winter": 0.95,
+   "solar_thermal_dhw": 0.95
+  },
+  "text": "A wood stove is used all winter. Solar thermal system for hot water present."
+ },
+ "8614e0046b6bbcca": {
+  "u_values": {},
+  "extra_heat_source": null,
+  "extra_source_all_winter": null,
+  "solar_thermal_dhw": null,
+  "unheated_area_note": "Top floor added in the 1990s, currently not lived in.",
+  "insulation_measures": [
+   "Cavity wall insulation (blown-in)",
+   "insulated roof"
+  ],
+  "glazing": "double glazing without low-e coating",
+  "building_type": null,
+  "evidence": {
+   "insulation_measures": "Cavity wall insulation (blown-in) and insulated roof, year unknown.",
+   "glazing": "Double glazing without low-e coating.",
+   "unheated_area_note": "Top floor added in the 1990s, currently not lived in."
+  },
+  "confidence": {
+   "insulation_measures": 0.95,
+   "glazing": 0.95,
+   "unheated_area_note": 0.8
+  },
+  "text": "Cavity wall insulation (blown-in) and insulated roof, year unknown. Double glazing without low-e coating. Top floor added in the 1990s, currently not lived in."
+ },
+ "6cf56cc80afb34a1": {
+  "u_values": {},
+  "extra_heat_source": null,
+  "extra_source_all_winter": null,
+  "solar_thermal_dhw": null,
+  "unheated_area_note": null,
+  "insulation_measures": null,
+  "glazing": null,
+  "building_type": "semi_detached",
+  "evidence": {
+   "building_type": "Semi-detached house."
+  },
+  "confidence": {
+   "building_type": 0.98
+  },
+  "text": "Semi-detached house. No renovation information."
+ },
+ "286c3b94c23e445c": {
+  "u_values": {},
+  "extra_heat_source": null,
+  "extra_source_all_winter": null,
+  "solar_thermal_dhw": true,
+  "unheated_area_note": null,
+  "insulation_measures": [],
+  "glazing": "Double low-e glazing",
+  "building_type": null,
+  "evidence": {
+   "insulation_measures": "No additional insulation on facade or roof.",
+   "glazing": "Double low-e glazing.",
+   "solar_thermal_dhw": "Solar thermal system present. (notes do not mention hot water; only that a solar thermal system is present)"
+  },
+  "confidence": {
+   "insulation_measures": 0.9,
+   "glazing": 0.9,
+   "solar_thermal_dhw": 0.5
+  },
+  "text": "No additional insulation on facade or roof. Double low-e glazing. Solar thermal system present."
+ },
+ "490f899634aef0c8": {
+  "u_values": {
+   "windows": 1.1,
+   "wall": 0.21,
+   "basement": 0.35,
+   "roof": 0.24,
+   "floor": 0.35
+  },
+  "extra_heat_source": null,
+  "extra_source_all_winter": null,
+  "solar_thermal_dhw": null,
+  "unheated_area_note": null,
+  "insulation_measures": null,
+  "glazing": null,
+  "building_type": null,
+  "evidence": {
+   "u_values": "windows 1.1, external wall 0.21, basement wall 0.35, roof approx. 0.24, floor slab approx. 0.35 W/(m²K)"
+  },
+  "confidence": {
+   "u_values": 0.9
+  },
+  "text": "No renovation documented. U-values stated by the owner: windows 1.1, external wall 0.21, basement wall 0.35, roof approx. 0.24, floor slab approx. 0.35 W/(m²K)."
+ }
+}

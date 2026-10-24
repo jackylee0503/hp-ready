@@ -84,7 +84,7 @@ First thing on the day: get the submission deadline and pitch slot. Build time =
 
 ## Stack
 
-- Python 3.11, Streamlit, Pydantic, pandas, numpy, Anthropic API. Model `claude-sonnet-5-5`.
+- Python 3.11, Streamlit, Pydantic, pandas, numpy, Anthropic API. Model `claude-sonnet-5-5`. It rejects forced `tool_choice` (`any`/`tool`, 400): `loader.llm_tool` uses `auto` + "always call exactly one tool" in the system prompt, effort `low`, `max_tokens` ≥ 8000 (thinking is always on and counts toward it).
 - API key: `st.secrets["ANTHROPIC_API_KEY"]`, else environment variable. Never hard-code.
 - Run: locally with `streamlit run app.py` in a standard browser is the primary demo path (organiser: "runs locally in a standard browser"). Streamlit Community Cloud (Python 3.11) is an optional share link and backup; if used, wake it 10 minutes before the pitch. Keep a screen recording.
 - Data: `data/` is committed (anonymised, private repo; reconfirm terms on the day). Raw bills/photos in `samples/` are gitignored; commit only redacted copies with `git add -f`.
