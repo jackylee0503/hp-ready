@@ -1,0 +1,156 @@
+{
+ "b6c25e0a7292e19b5e04": {
+  "kind": "house_text",
+  "obs": {
+   "build_year": 1972,
+   "living_area_m2": 140.0,
+   "building_type": "terraced",
+   "renovation": "partially",
+   "renovation_hints": [
+    "new windows in 2015",
+    "roof was insulated"
+   ],
+   "heat_distribution": null,
+   "fuel_type": "gas",
+   "yearly_use_value": 18000.0,
+   "yearly_use_unit": "kWh",
+   "occupants": 3,
+   "radiator_count": 10,
+   "radiator_size_words": "the big flat ones",
+   "radiator_size": "large",
+   "boiler_condensing": null,
+   "notes": {
+    "u_values": {},
+    "extra_heat_source": null,
+    "extra_source_all_winter": null,
+    "solar_thermal_dhw": null,
+    "unheated_area_note": null,
+    "insulation_measures": [
+     "roof insulated"
+    ],
+    "glazing": "new windows in 2015",
+    "building_type": "terraced",
+    "evidence": {
+     "building_type": "Terraced house",
+     "insulation_measures": "the roof was insulated",
+     "glazing": "We got new windows in 2015"
+    },
+    "confidence": {
+     "building_type": 0.95,
+     "insulation_measures": 0.9,
+     "glazing": 0.85
+    },
+    "method": "llm"
+   },
+   "evidence": {
+    "building_type": "Terraced house",
+    "build_year": "from 1972",
+    "living_area_m2": "about 140 m²",
+    "fuel_type": "Gas heating",
+    "yearly_use_value": "roughly 18,000 kWh a year",
+    "yearly_use_unit": "roughly 18,000 kWh a year",
+    "occupants": "three of us live here",
+    "radiator_count": "10 radiators",
+    "radiator_size": "the big flat ones",
+    "radiator_size_words": "the big flat ones",
+    "renovation": "new windows in 2015 and the roof was insulated"
+   },
+   "confidence": {
+    "building_type": 0.95,
+    "build_year": 0.95,
+    "living_area_m2": 0.9,
+    "fuel_type": 0.9,
+    "yearly_use_value": 0.85,
+    "yearly_use_unit": 0.85,
+    "occupants": 0.9,
+    "radiator_count": 0.95,
+    "radiator_size": 0.5,
+    "radiator_size_words": 0.5,
+    "renovation": 0.85
+   }
+  }
+ },
+ "e9cf8d56906a0b13490a": {
+  "kind": "bill",
+  "obs": {
+   "bill_carrier": "gas",
+   "kwh_printed": 18002.0,
+   "m3": 1651.0,
+   "zustandszahl": 0.9523,
+   "brennwert": 11.45,
+   "liters": null,
+   "period_start": "2025-01-01",
+   "period_end": "2025-12-31",
+   "bill_total_eur": 2462.12,
+   "monthly_advance_eur": 205.0,
+   "evidence": {
+    "bill_carrier": "Jahresabrechnung Erdgas 2025",
+    "bill_total_eur": "Gesamtbetrag brutto 2.462,12 €",
+    "brennwert": "Brennwert 11,450 kWh/m³",
+    "kwh_printed": "Verbrauch in kWh 18.002 kWh",
+    "m3": "Verbrauch 1.651 m³",
+    "monthly_advance_eur": "Neuer Abschlag ab 02/2026 205,00 € / Monat",
+    "period_start": "01.01.2025 – 31.12.2025",
+    "period_end": "01.01.2025 – 31.12.2025",
+    "zustandszahl": "Zustandszahl 0,9523"
+   },
+   "confidence": {
+    "bill_carrier": 0.95,
+    "bill_total_eur": 0.98,
+    "brennwert": 0.98,
+    "kwh_printed": 0.98,
+    "m3": 0.98,
+    "monthly_advance_eur": 0.8,
+    "period_start": 0.99,
+    "period_end": 0.99,
+    "zustandszahl": 0.98
+   },
+   "missing": {},
+   "retake_tip": null
+  }
+ },
+ "1993864096d98dc9282f": {
+  "kind": "radiator",
+  "obs": {
+   "panel_type": null,
+   "radiator_size": null,
+   "valve_type": "Thermostatic radiator valve (thermostatic head) at top connection",
+   "pipe_system": "two_pipe",
+   "pipe_reason": "Valve with thermostatic head at the top, with a separate pipe rising from the floor to it, and a separate return pipe at the bottom connection. Two separate pipes are visible.",
+   "evidence": {
+    "valve_type": "thermostatic head on top-right valve body",
+    "pipe_system": "supply pipe from floor up to top valve; separate bottom return connection with its own floor pipe"
+   },
+   "confidence": {
+    "valve_type": 0.8,
+    "pipe_system": 0.6
+   },
+   "missing": {
+    "panel_type": "not_visible",
+    "radiator_size": "not_visible"
+   },
+   "retake_tip": "To read panel type and size, take a photo from the front or side of the whole radiator, including its edge."
+  }
+ },
+ "d6d543ee6bc2a8ce3f50": {
+  "kind": "radiator",
+  "obs": {
+   "panel_type": null,
+   "radiator_size": null,
+   "valve_type": "Thermostatic radiator valve with head, angled H-block style connection block at the bottom of a towel/bathroom radiator",
+   "pipe_system": null,
+   "pipe_reason": "Bathroom towel radiator with a multiblock/H-style valve block at the bottom; two connections or a valve block alone does not indicate pipe system, and no side bypass port or separate pipes are visible.",
+   "evidence": {
+    "valve_type": "white thermostatic head on nickel block with two pipe connections below towel radiator"
+   },
+   "confidence": {
+    "valve_type": 0.7
+   },
+   "missing": {
+    "panel_type": "wrong_object",
+    "radiator_size": "not_visible"
+   },
+   "retake_tip": "To judge panel type and size, photograph the whole radiator from the front. To judge the pipe system, show the pipes' routing to the wall or floor."
+  }
+ }
+}
