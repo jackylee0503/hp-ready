@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 import urllib.parse
+from datetime import date
 from functools import reduce
 from html import escape as esc
 from pathlib import Path
@@ -56,6 +57,23 @@ st.markdown("""<style>
        vertical-align:middle;white-space:nowrap;background:transparent}
 .ev-sub{display:block;font-size:12px;color:var(--muted);margin-top:2px}
 .ev-card{background:var(--card);border:1px solid var(--line);border-radius:16px;min-width:0}
+/* Installer: lead cards (an invisible full-size button sits on top of each card), KPI strip, checks card */
+.lead-card{background:transparent;border:1px solid var(--line);border-radius:14px;padding:14px 16px;display:flex;
+           flex-direction:column;gap:6px;min-height:44px;color:var(--ink);box-sizing:border-box}
+.lead-card.sel{background:#fff;border:1.5px solid var(--ink)}
+.stApp [class*="st-key-leadbox_"]{position:relative;gap:0}
+.stApp [class*="st-key-leadbtn_"]{position:absolute;inset:0;z-index:2;margin:0}
+.stApp [class*="st-key-leadbtn_"] button{width:100%;height:100%;min-height:44px;opacity:0;cursor:pointer}
+.stApp [class*="st-key-leadbox_"]:hover .lead-card:not(.sel){border-color:#C9D2DD;background:#FAFBFC}
+.stApp [class*="st-key-leadbox_"]:has(button:focus-visible) .lead-card{outline:2px solid var(--ink);outline-offset:2px}
+.kpi-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));background:var(--card);
+           border:1px solid var(--line);border-radius:16px;overflow:hidden}
+.kpi-cell{padding:16px 20px;display:flex;flex-direction:column;gap:4px;border-left:1px solid var(--line-soft);
+          margin-left:-1px}
+.stApp [class*="st-key-stdchecks_"]{background:var(--card);border:1px solid var(--line);border-radius:16px;
+           padding:20px 22px 10px;gap:0}
+.stApp [class*="st-key-stdchecks_"] [data-testid="stCheckbox"]{border-top:1px solid var(--line-soft);padding:10px 0}
+.stApp [class*="st-key-stdchecks_"] [data-testid="stCheckbox"] p{font-size:14px;color:var(--ink)}
 /* Material icons (Streamlit 1.66: span data-testid=stIconMaterial or st*Icon*, aria-hidden, translate=no) keep their font */
 .stApp [data-testid="stIconMaterial"], .stApp span[data-testid*="Icon"], .stApp span[translate="no"][aria-hidden="true"],
 .stApp .material-symbols-rounded {font-family:"Material Symbols Rounded" !important;}
@@ -1010,12 +1028,26 @@ def tab_homeowner():
                 html(f'<span class="pill">{h.source.get(f, "")}</span>', c2)
 
 
+def request_subject(r: Result) -> str:
+    return f"Heat pump: {VISIT.get(r.visit_type, 'quote request')}"
+
+
+def mailto(subject: str, body: str, to: str = "") -> str:
+    return f"mailto:{urllib.parse.quote(to)}?" + urllib.parse.urlencode({"subject": subject, "body": body},
+                                                                        quote_via=urllib.parse.quote)
+
+
 def request_panel(h: House, r: Result, key: str):
+    """Homeowner contact form (last step of the Homeowner flow). Stores what was entered for the Installer footer."""
     html('<div class="card" style="border:1.5px solid #14213D"><b>Your request is ready</b><br>'
          '<span class="muted">Just add how to reach you.</span></div>')
     name = st.text_input("Name", key=f"name_{key}")
     contact = st.text_input("E-mail or phone", key=f"contact_{key}")
     plz = st.text_input("Postcode", key=f"plz_{key}")
+    if name.strip() or contact.strip() or plz.strip():
+        prev = st.session_state.get("request_sent") or {}
+        st.session_state["request_sent"] = {"name": name.strip(), "contact": contact.strip(), "postcode": plz.strip(),
+                                            "date": prev.get("date") or date.today().strftime("%d %b %Y").lstrip("0")}
     pdf = None
     if engine is not None and hasattr(engine, "handover_pdf"):
         try:
@@ -1025,57 +1057,347 @@ def request_panel(h: House, r: Result, key: str):
     if pdf:
         st.download_button("PDF for the installer", pdf, file_name="pre-visit-sheet.pdf", mime="application/pdf",
                            type="primary", width="stretch", key=f"pdf_{key}")
-    subject = f"Heat pump: {VISIT.get(r.visit_type, 'quote request')}"
     body = (f"Hello,\n\nplease find my pre-visit sheet attached (HP-Ready first estimate: {r.best_color}, "
             f"about {t(r.required_flow_temp_c.p50)}).\n\n{name}\n{contact}\n{plz}")
-    st.link_button("Open as e-mail", "mailto:?" + urllib.parse.urlencode({"subject": subject, "body": body},
-                                                                          quote_via=urllib.parse.quote), width="stretch")
+    st.link_button("Open as e-mail", mailto(request_subject(r), body), width="stretch")
     st.caption("One page any installer reads in a minute. Nothing is stored.")
+
+# ---------------------------------------------------------------- installer
+
+
+STANDARD_CHECKS = ["Room-by-room heat load (DIN EN 12831)", "Electrical capacity, meter cabinet",
+                   "Hydraulics and balancing", "Outdoor unit: position, sound distance, permits"]
+_NUM = r"(\d+(?:\.\d+)?)"
+
+
+def flow_big(v: float | None) -> str:
+    return "–" if v is None else ("> 70 °C" if v > 70 else f"≈ {v:.0f} °C")
+
+
+def visit_pill_text(r: Result) -> str:
+    c = r.best_color.capitalize()
+    return {"hold": "Hold · not without changes", "visit_with_parts": f"{c} · short visit with parts",
+            "remote_quote": f"{c} · remote quote possible"}.get(r.visit_type or "", c)
+
+
+def installer_meta(h: House) -> str:
+    fuel = {"gas": "gas boiler", "lpg": "LPG boiler", "oil": "oil boiler", "district": "district heating",
+            "electric": "electric heating"}.get(h.fuel_type or "", h.fuel_type)
+    n = h.radiator_count
+    if h.heat_distribution == "underfloor":
+        rad = "underfloor heating"
+    else:
+        rad = f"{n} radiator{'s' if n != 1 else ''}" if n else None
+    parts = [human_enum(h.building_type) if h.building_type else None, str(h.build_year) if h.build_year else None,
+             f"{h.living_area_m2:.0f} m²" if h.living_area_m2 else None, fuel, rad]
+    return " · ".join(p for p in parts if p)
+
+
+def radiator_share(h: House) -> str:
+    """Mixed systems: share of the load on the radiator circuit (radiators / rooms), as the engine splits it."""
+    if h.heat_distribution != "mixed" or not h.radiator_count or not h.rooms:
+        return ""
+    share = min(h.radiator_count / h.rooms, 1.0)
+    return (f" — the radiator circuit carries {share:.0%} of the load ({h.radiator_count} radiators / "
+            f"{h.rooms} rooms)").replace("%", " %")
+
+
+def what_it_takes(h: House, r: Result) -> list[tuple[str, str]]:
+    """(title, body) blocks from r.path_to_yellow. Titles come from what each line says, not from the building."""
+    out, letters = [], iter("ABCDEFG")
+    for line in r.path_to_yellow or []:
+        s = clean_text(line)
+        m = re.search(rf"give {_NUM} kW, about {_NUM} kW is needed", s)
+        if s.lower().startswith("no change needed") and m:
+            have, need = float(m.group(1)), float(m.group(2))
+            body = (f"Radiators are rated {have:.1f} kW (at 75 °C); 55 °C needs a rating of about {need:.1f} kW"
+                    f"{radiator_share(h)}.")
+            if need and (have - need) / need < 0.05:
+                body += f" Tight margin ({(have - need) / need:.0%}), so the real radiator sizes decide it.".replace("%", " %")
+            out.append(("No radiator changes for 55 °C", body))
+            continue
+        if s.lower().startswith("nothing to change"):
+            out.append(("Nothing to change", clean_text(s.split(":", 1)[-1])))
+            continue
+        m = re.search(rf"Add about {_NUM} kW radiator output for 55 °C \({_NUM} kW for 60 °C\); today {_NUM} kW", s)
+        if m:
+            a55, a60, now = (float(x) for x in m.groups())
+            tail = (" 60 °C already works with today's radiators." if a60 <= 0
+                    else f" About {a60:.1f} kW for 60 °C.")
+            out.append((f"Option {next(letters)} · more radiator surface",
+                        f"Add about {a55:.1f} kW of rated radiator output for 55 °C.{tail} Today: {now:.1f} kW."))
+            continue
+        m = re.search(r"cut the heat loss by about (\d+)\s*%", s)
+        if m:
+            out.append((f"Option {next(letters)} · cut heat loss",
+                        f"About −{m.group(1)} % heat loss (insulation or windows) reaches 55 °C with today's radiators."))
+            continue
+        head, sep, rest = s.partition(": ")
+        if sep and len(head) <= 40:
+            rest = re.sub(r"\s*\((?:installer to )?check[^()]*\)\s*\.?$", ".", rest).strip()
+            out.append((head, clean_text(rest)))
+        else:
+            out.append((f"Option {next(letters)}", s))
+    if r.best_color == "green" and out and out[0][0] in ("No radiator changes for 55 °C", "Nothing to change"):
+        return out[:1]
+    return out
+
+
+def bring_rows(h: House, r: Result) -> tuple[list[tuple[str, str]], str]:
+    p = r.parts
+    note = (p.radiators_note or "").strip()
+    rs = p.radiators_to_swap
+    if rs is None:
+        swap = "n/a (underfloor)" if h.heat_distribution == "underfloor" else "–"
+    else:
+        lo, mid, hi = rs
+        if lo == hi:
+            swap = "None" if mid == 0 else (f"All {mid}" if h.radiator_count and mid >= h.radiator_count else str(mid))
+        elif mid == 0:
+            swap = f"None expected (up to {hi})"
+        else:
+            swap = f"{mid} ({lo}–{hi})"
+        if "may not be enough" in note:
+            swap += " — may not be enough"
+    rows = [("Radiators to swap", swap),
+            ("Thermostatic valves", f"{p.valves} to replace" if p.valves else "None documented"),
+            ("Hydraulic balancing", {"needed": "Needed", "check": "Check"}.get(p.balancing or "", "–"))]
+    if h.heat_distribution == "underfloor":
+        cap = "Underfloor heating; attached radiators: check." if "attached" in note else ""
+    else:
+        cap = "Radiator sizes unknown — assumed medium." if h.radiator_size is None else ""
+    return rows, cap
+
+
+def installer_summary(h: House, r: Result) -> str:
+    fl = r.required_flow_temp_c.p50
+    if h.heat_distribution == "underfloor":
+        first = "Underfloor heating runs at about 35–40 °C, ideal for a heat pump."
+    elif fl is None:
+        first = "Flow temperature can't be estimated from the data yet."
+    elif fl > 70:
+        first = "Needs more than 70 °C flow on the coldest day — well above the ~60 °C a heat pump handles efficiently."
+    elif fl > 60:
+        first = f"Needs about {fl:.0f} °C flow on the coldest day — above the ~60 °C a heat pump handles efficiently."
+    elif fl > 55.5:
+        first = f"Needs about {fl:.0f} °C flow on the coldest day — workable, but above the efficient band (up to 55 °C)."
+    else:
+        first = f"Needs about {fl:.0f} °C flow on the coldest day — inside the efficient band (up to 55 °C)."
+    if r.visit_type == "hold" or r.best_color == "red":
+        return first + " Workable only with more radiator surface or less heat loss."
+    rs = r.parts.radiators_to_swap
+    if h.heat_distribution == "underfloor":
+        swaps = "No radiator work expected"
+    elif rs is None:
+        swaps = "Radiator work unclear"
+    elif rs[1] == 0 and rs[2] == 0:
+        swaps = "No radiator swaps expected"
+    elif rs[1] == 0:
+        swaps = f"No radiator swaps expected (up to {rs[2]} if they are smaller than assumed)"
+    else:
+        swaps = f"About {rs[1]} radiator swap{'s' if rs[1] != 1 else ''} expected"
+    topics = []
+    for c in r.contradictions:
+        w, srcs = c.what.lower(), " ".join(c.sources).lower()
+        topic = ("the floor area" if "rooms" in srcs else "the bill mismatch" if "consumption" in srcs and "bill" in w
+                 else "the extra heat source" if "heat source" in w else "the hot-water setup" if "hot water" in w
+                 else "the renovation status" if "renovation" in w else "the fuel (gas or LPG)" if "lpg" in w
+                 else "the unused floor" if "unused" in w else None)
+        if topic and topic not in topics:
+            topics.append(topic)
+    if r.visit_type == "remote_quote":
+        why = "; a remote quote should do."
+    elif topics:
+        why = "; the visit is mostly to settle " + (" and ".join(topics[:2])) + "."
+    elif h.radiator_size is None and h.heat_distribution != "underfloor":
+        why = "; the visit is mostly to measure the radiators."
+    else:
+        why = "."
+    return f"{first} {swaps}{why}"
+
+
+def lead_card(bid: str, r: Result | None, selected: bool) -> str:
+    if r is None:
+        right, line = pill("none", "No result", size="11px"), "–"
+    else:
+        right = pill(r.best_color, r.best_color.capitalize(), size="11px")
+        line = f"{kw(r.heat_load_kw.p50)} · {flow_big(r.required_flow_temp_c.p50)} · score {r.lead_score or 0:.2f}"
+    return (f'<div class="lead-card{" sel" if selected else ""}">'
+            f'<span style="display:flex;justify-content:space-between;align-items:center;gap:8px">'
+            f'<b style="font-size:15px">{esc(bid)}</b>{right}</span>'
+            f'<span class="num" style="font-size:12px;color:var(--muted)">{esc(line)}</span></div>')
+
+
+def _sec(title: str, inner: str, right: str = "") -> str:
+    r_ = f'<span class="num" style="font-size:13px;color:var(--muted)">{right}</span>' if right else ""
+    return ('<section class="ev-card" style="padding:20px 22px;display:flex;flex-direction:column;gap:4px">'
+            '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">'
+            f'<h2 style="margin:0;font-size:16px;font-weight:600;color:var(--ink)">{title}</h2>{r_}</div>{inner}</section>')
+
+
+def installer_body_left(h: House, r: Result) -> str:
+    takes = "".join('<div style="display:flex;flex-direction:column;gap:4px;padding-top:12px;margin-top:8px;'
+                    'border-top:1px solid var(--line-soft)">'
+                    f'<span style="font-size:14px;font-weight:600;color:var(--ink)">{esc(tt)}</span>'
+                    f'<span style="font-size:14px;color:#3A4A66;line-height:1.5">{esc(b)}</span></div>'
+                    for tt, b in what_it_takes(h, r)) or '<span style="font-size:14px;color:var(--muted)">–</span>'
+    rows, cap = bring_rows(h, r)
+    bring = "".join('<div style="display:flex;justify-content:space-between;gap:16px;font-size:14px;padding:8px 0;'
+                    f'border-top:1px solid var(--line-soft)"><span style="color:var(--muted)">{esc(k)}</span>'
+                    f'<span class="num" style="font-weight:600;text-align:right;color:var(--ink)">{esc(v)}</span></div>'
+                    for k, v in rows)
+    if cap:
+        bring += f'<span style="font-size:12px;color:var(--muted);margin-top:6px">{esc(cap)}</span>'
+    return ('<div style="display:flex;flex-direction:column;gap:20px">'
+            + _sec("What it takes", takes) + _sec("Bring", bring) + "</div>")
+
+
+def installer_flags(h: House, r: Result) -> list[dict]:
+    """house_flags, without repeating what 'What it takes' already says (keep only the check)."""
+    out = []
+    for f in house_flags(h, r):
+        txt = f["text"]
+        if "; options:" in txt:
+            txt = txt.split("; options:")[0].rstrip(".") + "."
+        txt = re.sub(r"(\d) (%|kW|°C)", "\\1\u00a0\\2", txt)      # keep units on the number's line
+        out.append({**f, "text": txt[:1].upper() + txt[1:]})
+    return out
+
+
+def installer_flags_html(flags: list[dict]) -> str:
+    if not flags:
+        inner = ('<div style="font-size:14px;color:var(--muted);padding:12px 0;border-top:1px solid var(--line-soft)">'
+                 'Nothing specific to this house.</div>')
+    else:
+        inner = "".join(
+            '<div style="display:grid;grid-template-columns:24px minmax(0,1fr);gap:10px;padding:12px 0;'
+            'border-top:1px solid var(--line-soft)">'
+            '<span class="num" style="width:24px;height:24px;border-radius:12px;background:var(--line-soft);font-size:12px;'
+            f'font-weight:600;display:flex;align-items:center;justify-content:center;color:var(--ink)">{i}</span>'
+            '<div style="display:flex;flex-direction:column;gap:6px">'
+            f'<span style="font-size:14px;line-height:1.5;color:var(--ink)">{esc(f["text"])}</span>'
+            '<span style="font-size:11px;color:#3A4A66;background:var(--line-soft);border-radius:6px;padding:2px 8px;'
+            f'align-self:flex-start">{esc(f["src"])}</span></div></div>'
+            for i, f in enumerate(flags, 1))
+    return _sec("Flags for this house", inner, str(len(flags)))
+
+
+def kpi_strip(h: House, r: Result, ref: dict | None, rank: int, n: int) -> str:
+    load, bill = r.heat_load_kw.p50, r.heat_load_bill_kw.p50
+    load_sub = (f"reference {ref['heating_load_kw']:.1f} kW" if ref and ref.get("heating_load_kw") is not None
+                else "no bill" if bill is None else f"bill says {bill:.1f} kW")
+    fl = r.required_flow_temp_c
+    nr = h.radiator_count
+    size = f"{h.radiator_size} size" if h.radiator_size else "sizes unknown"
+    if h.heat_distribution == "underfloor":
+        rad_big = "Underfloor"
+        rad_sub = f"{nr} radiator{'s' if nr != 1 else ''} attached" if nr else "no radiators documented"
+    else:
+        rad_big = str(nr) if nr else "–"
+        rad_sub = (("mixed · " if h.heat_distribution == "mixed" else "") + size) if nr else "not documented"
+    cells = [("Heat load", kw(load), load_sub), ("Flow temp, coldest day", flow_big(fl.p50), f"likely {flow_span(fl.p10, fl.p90)}"),
+             ("Radiators", rad_big, rad_sub),
+             ("Lead score", "–" if r.lead_score is None else f"{r.lead_score:.2f}", f"#{rank} of {n}")]
+    inner = "".join(
+        f'<div class="kpi-cell"><span style="font-size:12px;color:var(--muted)">{a}</span>'
+        f'<span class="num" style="font-size:22px;font-weight:700;color:var(--ink)">{esc(b)}</span>'
+        f'<span class="num" style="font-size:12px;color:var(--muted)">{esc(c)}</span></div>' for a, b, c in cells)
+    return f'<div class="kpi-strip">{inner}</div>'
+
+
+def sent_card(lead: str, h: House) -> str:
+    req = st.session_state.get("request_sent") if lead == "Homeowner house" else None
+    if req:
+        l1 = " · ".join(x for x in (req.get("name"), req.get("postcode")) if x) or "No name given"
+        l2 = " · ".join(x for x in (req.get("contact") or "No contact given", req.get("date")) if x)
+    elif X.DEMO_ONLY:
+        pc = re.search(r"\((\d\dx+)\)", h.region or "")
+        l1 = f"Sample homeowner · {pc.group(1) if pc else '8xxxx'}"
+        l2 = f"homeowner@example.com · {date.today().strftime('%d %b %Y').lstrip('0')}"
+    else:
+        l1, l2 = "Not sent yet", "The homeowner's details appear here once they send the request."
+    return ('<section class="ev-card" style="padding:18px 22px;display:flex;justify-content:space-between;'
+            'align-items:center;gap:16px;flex-wrap:wrap"><div style="display:flex;flex-direction:column;gap:4px">'
+            '<span style="font-size:12px;color:var(--muted)">Sent by the homeowner</span>'
+            f'<span style="font-size:15px;font-weight:600;color:var(--ink)">{esc(l1)}</span>'
+            f'<span style="font-size:13px;color:var(--muted)">{esc(l2)}</span></div>'
+            '<span style="font-size:12px;color:var(--muted);max-width:320px">One page, readable in a minute. '
+            'Nothing is stored on our side.</span></section>')
+
+
+def _lead_key(bid: str) -> str:
+    return re.sub(r"\W", "_", bid)
 
 
 def tab_installer():
-    opts = {bid: h for bid, h, _ in buildings()}
-    if st.session_state.get("reads"):
-        opts["Homeowner house"] = home_house()
-    left, right = st.columns([1, 3])
-    sel = left.radio("Leads", list(opts), index=len(opts) - 1)
-    h = opts[sel]
-    r = evaluate(h)
+    ss = st.session_state
+    leads = [(bid, h, ref) for bid, h, ref in buildings()]
+    if ss.get("reads"):
+        leads.append(("Homeowner house", home_house(), None))
+    res = [(bid, h, ref, evaluate(h)) for bid, h, ref in leads]
+    if not any(r for *_, r in res):
+        st.info(f"Engine not ready yet ({ENGINE_ERR or 'no result'}).")
+        return
+    res.sort(key=lambda x: (-(x[3].lead_score or 0) if x[3] else 1, x[0]))
+    ids = [x[0] for x in res]
+    if ss.get("lead") not in ids:
+        ss["lead"] = ids[0]
+    left, right = st.columns([1, 3.3], gap="large")
+    with left:
+        st.html('<div style="display:flex;justify-content:space-between;align-items:baseline;padding:0 4px">'
+                '<h2 style="margin:0;font-size:14px;font-weight:600;color:var(--ink)">Leads</h2>'
+                f'<span style="font-size:12px;color:var(--muted)">{len(ids)} · by lead score</span></div>')
+        for bid, _, _, r in res:
+            k = _lead_key(bid)
+            with st.container(key=f"leadbox_{k}"):
+                st.html(lead_card(bid, r, bid == ss["lead"]))
+                label = f"{bid}: {r.best_color} · score {r.lead_score or 0:.2f}" if r else bid
+                st.button(label, key=f"leadbtn_{k}", on_click=lambda b=bid: ss.update(lead=b), width="stretch")
+    rank = ids.index(ss["lead"]) + 1
+    bid, h, ref, r = res[rank - 1]
     with right:
         if r is None:
-            st.info(f"Engine not ready yet ({ENGINE_ERR or 'no result'}).")
+            st.info(f"No result for {bid}.")
             return
-        st.markdown(f"### {sel} · {h.building_type or ''} {h.build_year or ''} · {h.living_area_m2 or 0:.0f} m² · {h.fuel_type or ''}")
-        html(f'<span class="chip" style="background:{COL[r.best_color]};color:{"#14213D" if r.best_color == "yellow" else "#fff"}">'
-             f'{VISIT.get(r.visit_type, "–")}</span>')
-        st.markdown(r.reason)
-        html(f'<span class="chip">Load {kw(r.heat_load_kw.p50)} (bill {kw(r.heat_load_bill_kw.p50)})</span>'
-             f'<span class="chip">Water {t_range(r.required_flow_temp_c)}</span>'
-             f'<span class="chip">{h.radiator_count or "?"} radiators, size {h.radiator_size or "unknown"}</span>')
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            st.markdown("**Path to yellow**")
-            for p in r.path_to_yellow or ["–"]:
-                st.markdown(f"- {p}")
+        top_l, top_r = st.columns([1, 1], vertical_alignment="top")
+        top_l.html('<div style="display:flex;flex-direction:column;gap:10px;min-width:0">'
+                   '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">'
+                   f'<h1 style="margin:0;padding:0;font-size:30px;font-weight:700;letter-spacing:-0.02em;color:var(--ink)">{esc(bid)}</h1>'
+                   f'{pill(r.best_color, visit_pill_text(r), filled=True, size="13px")}</div>'
+                   f'<div style="font-size:16px;color:#3A4A66">{esc(installer_meta(h))}</div></div>')
+        with top_r.container(horizontal=True, horizontal_alignment="right", key=f"inst_actions_{_lead_key(bid)}"):
+            pdf = None
+            if engine is not None and hasattr(engine, "handover_pdf"):
+                try:
+                    pdf = engine.handover_pdf(h, r, {})
+                except Exception:
+                    pdf = None
+            if pdf:
+                st.download_button("Download one-pager", pdf, file_name=f"{_lead_key(bid)}-pre-visit.pdf",
+                                   mime="application/pdf", key=f"inst_pdf_{_lead_key(bid)}")
+            else:   # TODO: enable once engine.handover_pdf exists
+                st.button("Download one-pager", disabled=True, key=f"inst_pdf_{_lead_key(bid)}",
+                          help="The one-page PDF isn't available in this build yet.")
+            req = ss.get("request_sent") if bid == "Homeowner house" else None
+            to = (req or {}).get("contact", "")
+            greet = f"Hello {req['name']}," if req and req.get("name") else "Hello,"
+            body = (f"{greet}\n\nthank you for your request. HP-Ready first estimate: {r.best_color}, about "
+                    f"{t(r.required_flow_temp_c.p50)} on the coldest day ({VISIT.get(r.visit_type, '').lower()}).\n\n"
+                    "We'll be in touch to arrange the next step.")
+            st.link_button("Reply to homeowner", mailto("Re: " + request_subject(r), body, to if "@" in to else ""),
+                           type="primary")
+        st.html(f'<p style="margin:0;font-size:16px;line-height:1.55;max-width:760px;color:var(--ink)">'
+                f'{esc(installer_summary(h, r))}</p>')
+        st.html(kpi_strip(h, r, ref, rank, len(ids)))
+        c1, c2 = st.columns(2, gap="medium")
+        c1.html(installer_body_left(h, r))
         with c2:
-            st.markdown("**Bring**")
-            rs = r.parts.radiators_to_swap
-            st.markdown(f"- Radiators to swap: {f'{rs[1]} ({rs[0]}–{rs[2]})' if rs else '–'}")
-            if r.parts.radiators_note:
-                st.caption(r.parts.radiators_note)
-            st.markdown(f"- Valves: {r.parts.valves if r.parts.valves is not None else 'none documented'}")
-            st.markdown(f"- Hydraulic balancing: {r.parts.balancing or '–'}")
-        with c3:
-            st.markdown("**Check on site**")
-            for c in r.site_flags + r.installer_checklist:
-                st.markdown(f"- {c}")
-        missing = [f for f in ("build_year", "living_area_m2", "annual_fuel_kwh", "radiator_count", "radiator_size")
-                   if getattr(h, f) is None]
-        if missing:
-            st.caption("Missing: " + ", ".join(m.replace("_", " ") for m in missing))
-        with st.expander("How we got this"):
-            rechenweg(r)
-        request_panel(h, r, f"inst_{sel}")
+            st.html(installer_flags_html(installer_flags(h, r)))
+            with st.container(key=f"stdchecks_{_lead_key(bid)}"):
+                st.html('<h2 style="margin:0;font-size:16px;font-weight:600;color:var(--ink)">Standard on-site checks</h2>')
+                for i, lab in enumerate(STANDARD_CHECKS):
+                    st.checkbox(lab, key=f"chk_{_lead_key(bid)}_{i}")
+        st.html(sent_card(bid, h))
 
 
 top_l, top_r = st.columns([4, 1])
