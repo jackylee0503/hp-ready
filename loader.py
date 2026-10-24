@@ -23,13 +23,63 @@ MODEL = "claude-sonnet-5-5"
 # ---------------------------------------------------------------- LLM plumbing (shared with extract.py)
 
 
-def api_key() -> str | None:
-    if os.environ.get("ANTHROPIC_API_KEY"):
-        return os.environ["ANTHROPIC_API_KEY"]
+def _clean_key(v) -> str | None:
+    v = str(v or "").strip().strip('"').strip("'").strip()
+    return v or None
+
+
+def api_key_source() -> tuple[str | None, str]:
+    """(key, where it was found). Looks in: environment, Streamlit secrets (project or ~/.streamlit), then the
+    project's secrets file read leniently (Windows Notepad BOM, a stray .txt ending, KEY=value without quotes)."""
+    if _clean_key(os.environ.get("ANTHROPIC_API_KEY")):
+        return _clean_key(os.environ["ANTHROPIC_API_KEY"]), "environment variable ANTHROPIC_API_KEY"
     try:
-        return tomllib.loads((ROOT / ".streamlit" / "secrets.toml").read_text(encoding="utf-8")).get("ANTHROPIC_API_KEY")
+        import streamlit as st
+        k = _clean_key(st.secrets.get("ANTHROPIC_API_KEY"))
+        if k:
+            return k, "Streamlit secrets"
     except Exception:
-        return None
+        pass
+    homes = [ROOT / ".streamlit", Path.home() / ".streamlit"]
+    for d in homes:
+        for name in ("secrets.toml", "secrets.toml.txt"):
+            f = d / name
+            if not f.exists():
+                continue
+            txt = f.read_text(encoding="utf-8-sig", errors="replace")
+            try:
+                k = _clean_key(tomllib.loads(txt).get("ANTHROPIC_API_KEY"))
+            except Exception:
+                m = re.search(r"ANTHROPIC_API_KEY\s*[=:]\s*(\S+)", txt)
+                k = _clean_key(m.group(1)) if m else None
+            if k:
+                return k, str(f)
+    return None, ("no key: put ANTHROPIC_API_KEY = \"sk-ant-...\" in " + str(ROOT / ".streamlit" / "secrets.toml")
+                  + " (this file is not in git, every computer needs its own copy)")
+
+
+def api_key() -> str | None:
+    return api_key_source()[0]
+
+
+def check_key() -> int:
+    """python loader.py --check-key: where the key comes from and whether one tiny call works."""
+    key, where = api_key_source()
+    print("key:", where if key else "NOT FOUND")
+    if not key:
+        print(where)
+        return 1
+    print("key looks like:", key[:10] + "…" + key[-4:], f"({len(key)} chars)")
+    try:
+        import anthropic
+        print("anthropic SDK:", anthropic.__version__)
+        msg = anthropic.Anthropic(api_key=key, timeout=60, max_retries=0).messages.create(
+            model=MODEL, max_tokens=20, messages=[{"role": "user", "content": "Say OK."}])
+        print("API call: OK ·", MODEL, "·", "".join(getattr(b, "text", "") for b in msg.content).strip()[:20])
+        return 0
+    except Exception as e:  # noqa: BLE001
+        print("API call FAILED:", type(e).__name__, str(e)[:300])
+        return 2
 
 
 def tool_schema(name: str, model, drop: tuple[str, ...] = ()) -> dict:
@@ -447,6 +497,8 @@ if __name__ == "__main__":
         rows = save_baseline()
         print(f"Saved {len(rows) - 1} buildings to {BASELINE.relative_to(ROOT)} ({rows['_meta']})")
         sys.exit(0)
+    if "--check-key" in sys.argv:
+        sys.exit(check_key())
     if "--compare-baseline" in sys.argv:
         print_compare()
         sys.exit(0)

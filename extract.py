@@ -78,6 +78,9 @@ WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "zwei":
 _FAILED: set[str] = set()       # keys whose live call failed this process: a down API is not retried
 
 
+LAST_ERR: dict[str, str] = {}   # mission -> why the last live read fell back (shown small in the app)
+
+
 def keyword_house(text: str) -> HouseTextObs:
     """Fallback for the text step when cache and API are both missing."""
     o, low = HouseTextObs(), text.lower()
@@ -170,6 +173,8 @@ def read_obs(data: bytes, mime: str, mission: str, cache_only: bool = False):
     except Exception as e:
         if mission != "house_text":
             raise RuntimeError(f"could not read the {mission}: {e}") from e
+        if key not in _FAILED:                # keep the first real reason (no key, wrong key, network …) for the UI
+            LAST_ERR["house_text"] = f"{type(e).__name__}: {e}"[:240]
         _FAILED.add(key)
         return "house_text", keyword_house(data.decode("utf-8", "replace"))   # not cached
     cache[key] = {"kind": kind, "obs": obs.model_dump()}

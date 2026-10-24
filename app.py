@@ -2006,9 +2006,13 @@ def text_page(h: House) -> int:
         tag = hashlib.sha256(data).hexdigest()[:16]
         if ss.get("tag_text") != tag:            # never read the same text twice
             ss["tag_text"] = tag
+            X.LAST_ERR.pop("house_text", None)
             do_read("text", data, "text/plain", "house_text")
             st.rerun()
     show_read("text")
+    if ss.get("tag_text") and X.LAST_ERR.get("house_text"):
+        st.caption("Read without the AI, by simple rules (" + X.LAST_ERR["house_text"].split(":")[0]
+                   + "). On this computer: `python loader.py --check-key` says why.")
     return open_n
 
 
