@@ -238,8 +238,213 @@ def tab_evaluation():
         answer_card(h, r, f"eval_{bid}")
 
 
+CHIPS = [("build_year", "{}"), ("living_area_m2", "{:.0f} m²"), ("building_type", "{}"), ("renovation", "{} renovated"),
+         ("heat_distribution", "{}"), ("fuel_type", "{}"), ("annual_fuel_kwh", "{:,.0f} kWh"), ("occupants", "{} people"),
+         ("radiator_count", "{} radiators"), ("radiator_size", "{} radiators"), ("pipe_system", "{}"),
+         ("kwh_printed", "{:,.0f} kWh printed"), ("certificate_kwh_m2a", "{:.0f} kWh/m²a"), ("outdoor_unit_space", "outdoor spot: {}")]
+FIX = [("build_year", "Built", None), ("living_area_m2", "Living area (m²)", None),
+       ("heat_distribution", "Heating surfaces", ["radiators", "underfloor", "mixed"]),
+       ("renovation", "Insulation / renovation", ["unrenovated", "partially", "fully"]),
+       ("fuel_type", "Heating fuel", ["gas", "lpg", "oil", "district", "electric"]),
+       ("annual_fuel_kwh", "Yearly use (kWh)", None), ("occupants", "People", None),
+       ("radiator_count", "Radiators", None), ("radiator_size", "Radiator size", ["small", "medium", "large"])]
+
+
+def chips(h: House) -> str:
+    out = []
+    for f, fmt in CHIPS:
+        v = getattr(h, f)
+        if v is None:
+            continue
+        unsure = h.confidence.get(f, 1) < 0.5
+        out.append(f'<span class="chip{" unsure" if unsure else ""}">{fmt.format(v).replace("_", " ")}{"?" if unsure else ""}</span>')
+    return "".join(out)
+
+
+def home_house() -> House:
+    ss = st.session_state
+    h = reduce(X.merge, [House.model_validate_json(j) for j in ss.reads.values()], House(building_id="Homeowner"))
+    conf = House(building_id="Homeowner", **ss.confirmed)
+    conf.source = {f: "confirmed" for f in ss.confirmed}
+    conf.confidence = {f: 0.9 for f in ss.confirmed}
+    return X.merge(h, conf)
+
+
+def do_read(slot: str, data: bytes, mime: str, mission: str):
+    with st.spinner("Reading…"):
+        try:
+            st.session_state.reads[slot] = X.extract(data, mime, mission).model_dump_json()
+        except Exception as e:
+            st.warning(f"We couldn't read that ({e}). You can skip this step.")
+
+
+def read_upload(up, slot: str, mission: str):
+    if up is None:
+        return
+    tag = f"{up.name}:{up.size}"
+    if st.session_state.get(f"tag_{slot}") != tag:
+        st.session_state[f"tag_{slot}"] = tag
+        do_read(slot, up.getvalue(), up.type or "image/jpeg", mission)
+
+
+def show_read(slot: str):
+    j = st.session_state.reads.get(slot)
+    if not j:
+        return
+    h = House.model_validate_json(j)
+    html('<p class="ok">✓ We read</p>' + chips(h))
+    if h.evidence:
+        with st.expander("Why?"):
+            for f, q in h.evidence.items():
+                st.caption(f"{f.replace('_', ' ')}: {q}")
+    if h.retake_tip or h.missing:
+        st.info(h.retake_tip or "Some of it was unreadable. One more photo?")
+
+
+def nav(step: int, can_skip: bool) -> str | None:
+    c1, c2, c3 = st.columns(3)
+    act = None
+    if step > 1 and c1.button("Back", key=f"back{step}", width="stretch"):
+        act = "back"
+    if can_skip and c2.button("Skip", key=f"skip{step}", width="stretch"):
+        act = "next"
+    if c3.button("Show my answer" if step == 4 else "Next", key=f"next{step}", type="primary", width="stretch"):
+        act = "next"
+    return act
+
+
 def tab_homeowner():
-    st.info("Homeowner wizard: Task 7.")
+    ss = st.session_state
+    ss.setdefault("step", 1)
+    ss.setdefault("reads", {})
+    ss.setdefault("confirmed", {})
+    h = home_house()
+    left, right = st.columns([3, 2])
+    with left:
+        if ss.step <= 4:
+            html('<div class="bars">' + "".join(f'<div class="{"on" if i <= ss.step else ""}"></div>' for i in range(1, 5))
+                 + f'</div><span class="muted">{ss.step} of 4</span>')
+        act = None
+        if ss.step == 1:
+            st.markdown("## Tell us about your house")
+            st.caption("Year, size, heating. Whatever you know.")
+            demo = (ROOT / "assets/demo/house_persona_en.txt").read_text(encoding="utf-8").strip()
+            st.button("Use the example text", on_click=lambda: ss.update(house_text=demo))
+            txt = st.text_area("Your house", key="house_text", placeholder=demo, height=130)
+            if st.button("Read it", disabled=not txt.strip()):
+                do_read("house_text", txt.strip().encode("utf-8"), "text/plain", "house_text")
+            show_read("house_text")
+            read_upload(st.file_uploader("Photo of the outside · optional", type=["jpg", "jpeg", "png", "webp"],
+                                         key="up_ext"), "exterior", "exterior")
+            show_read("exterior")
+            act = nav(1, False)
+            if act == "next" and txt.strip() and "house_text" not in ss.reads:
+                do_read("house_text", txt.strip().encode("utf-8"), "text/plain", "house_text")
+        elif ss.step == 2:
+            st.markdown("## Your biggest radiator")
+            st.caption("From the side, pipes in view.")
+            read_upload(st.file_uploader("Radiator photo", type=["jpg", "jpeg", "png", "webp"], key="up_rad"),
+                        "radiator", "radiator")
+            photos = sorted(p.name for p in (ROOT / "data/pipe_photos").glob("*.jp*g"))
+            pick = st.selectbox("or use an example photo", ["–"] + photos)
+            if pick != "–" and ss.get("tag_radiator") != pick:
+                ss["tag_radiator"] = pick
+                do_read("radiator", (ROOT / "data/pipe_photos" / pick).read_bytes(), "image/jpeg", "radiator")
+            if pick != "–":
+                st.image(str(ROOT / "data/pipe_photos" / pick), width=320)
+            show_read("radiator")
+            act = nav(2, True)
+        elif ss.step == 3:
+            st.markdown("## Bill or listing?")
+            st.caption("Optional. Photo, PDF or screenshot.")
+            read_upload(st.file_uploader("Bill or listing", type=["jpg", "jpeg", "png", "webp", "pdf"], key="up_doc"),
+                        "doc", "bill")
+            if st.button("Use the demo bill photo"):
+                ss["tag_doc"] = "demo"
+                do_read("doc", (ROOT / "assets/demo/bill_demo_gas_2025_photo.jpg").read_bytes(), "image/jpeg", "bill")
+            show_read("doc")
+            st.caption("Only the numbers are kept.")
+            act = nav(3, True)
+        elif ss.step == 4:
+            st.markdown("## Is this right?")
+            st.caption("Tap to fix.")
+            for f, label, opts in FIX:
+                v = getattr(h, f)
+                c1, c2, c3 = st.columns([2, 3, 1])
+                c1.markdown(label)
+                if opts:
+                    choices = ["don't know"] + opts
+                    new = c2.selectbox(label, choices, index=choices.index(v) if v in choices else 0,
+                                       key=f"fix_{f}", label_visibility="collapsed")
+                    new = None if new == "don't know" else new
+                else:
+                    new = c2.number_input(label, min_value=0, value=int(v or 0), step=1, key=f"fix_{f}",
+                                          label_visibility="collapsed", help="0 = don't know")
+                    new = None if new == 0 else new
+                html(f'<span class="pill">{h.source.get(f, "missing")}</span>', c3)
+                if new is not None and new != v:
+                    ss.confirmed[f] = new
+            asked = 0
+            for c in h.conflicts:
+                if c["field"] in ss.confirmed or asked >= 2:
+                    continue
+                (sa, va), (sb, vb) = list(c["values"].items())[:2]
+                pick = st.radio(f"Your {sa} says {va}, your {sb} says {vb}. Which one is it?",
+                                [va, vb, "don't know"], index=None, key=f"q_{c['field']}")
+                if pick not in (None, "don't know"):
+                    ss.confirmed[c["field"]] = pick
+                asked += 1
+            q = engine.next_question(home_house()) if engine is not None and hasattr(engine, "next_question") else None
+            if q and asked < 2:
+                st.info(q)
+            elif not asked:
+                html('<p class="ok">✓ No questions for you</p>')
+            act = nav(4, False)
+        else:
+            if st.button("Change answers"):
+                ss.step = 4
+                st.rerun()
+            r = evaluate(h)
+            answer_card(h, r, "home")
+            if r is not None:
+                request_panel(h, r, "home")
+        if act == "next":
+            ss.step += 1
+            st.rerun()
+        if act == "back":
+            ss.step -= 1
+            st.rerun()
+    with right:
+        html('<div class="card"><b>What we know so far</b> <span class="muted">tap to fix</span></div>')
+        for f, label, _ in FIX + [("pipe_system", "Pipes", None), ("kwh_printed", "Bill kWh", None)]:
+            v = getattr(h, f)
+            if v is not None:
+                c1, c2 = st.columns([3, 1])
+                c1.markdown(f"{label}: **{v}**")
+                html(f'<span class="pill">{h.source.get(f, "")}</span>', c2)
+
+
+def request_panel(h: House, r: Result, key: str):
+    html('<div class="card" style="border:1.5px solid #14213D"><b>Your request is ready</b><br>'
+         '<span class="muted">Just add how to reach you.</span></div>')
+    name = st.text_input("Name", key=f"name_{key}")
+    contact = st.text_input("E-mail or phone", key=f"contact_{key}")
+    plz = st.text_input("Postcode", key=f"plz_{key}")
+    pdf = None
+    if engine is not None and hasattr(engine, "handover_pdf"):
+        try:
+            pdf = engine.handover_pdf(h, r, {"name": name, "contact": contact, "postcode": plz})
+        except Exception as e:
+            st.caption(f"PDF not available: {e}")
+    if pdf:
+        st.download_button("PDF for the installer", pdf, file_name="pre-visit-sheet.pdf", mime="application/pdf",
+                           type="primary", width="stretch", key=f"pdf_{key}")
+    subject = f"Heat pump: {VISIT.get(r.visit_type, 'quote request')}"
+    body = (f"Hello,\n\nplease find my pre-visit sheet attached (HP-Ready first estimate: {r.best_color}, "
+            f"about {t(r.required_flow_temp_c.p50)}).\n\n{name}\n{contact}\n{plz}")
+    st.link_button("Open as e-mail", "mailto:?" + urllib.parse.urlencode({"subject": subject, "body": body},
+                                                                          quote_via=urllib.parse.quote), width="stretch")
+    st.caption("One page any installer reads in a minute. Nothing is stored.")
 
 
 def tab_installer():
