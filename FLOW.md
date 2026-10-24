@@ -40,7 +40,7 @@ Plain text version:
 data/*.json ──loader.py──────────────────────────────────────────┐
 1/4 page-1 form ───────────────────────────────────────────────┐              │
 2/4 radiator photo ──orchestrator: pipe_classifier | demo cache─┤              │
-3/4 bill / listing ──orchestrator: bill_recognizer | demo cache─┼─> pieces ──merge──> House (conflicts asked by the UI)
+3/4 bill / listing ──orchestrator: bill_recognizer | demo cache─┼─> pieces ──merge──> House (conflicts asked by the UI; answer required before the result)
 4/4 free text (opt.) ──LLM parser, only on "Read it", blanks only┘
 House ──orchestrator: calculation module (contradictions + Result) | engine.py | engine_tracer.py──> Result ──app.py──> 3 tabs
 ```

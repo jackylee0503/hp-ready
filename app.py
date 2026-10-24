@@ -111,6 +111,12 @@ st.markdown("""<style>
 .stApp [class*="st-key-stdchecks_"] [data-testid="stCheckbox"]{border-top:1px solid var(--line-soft);padding:10px 0}
 .stApp [class*="st-key-stdchecks_"] [data-testid="stCheckbox"] p{font-size:14px;color:var(--ink)}
 /* Material icons (Streamlit 1.66: span data-testid=stIconMaterial or st*Icon*, aria-hidden, translate=no) keep their font */
+/* Answer card call to action: an in-page link to the request form, styled as a button */
+a.cta{display:block;text-align:center;padding:10px 16px;border-radius:8px;background:#14213D;color:#fff !important;
+      font-weight:600;text-decoration:none !important;margin:8px 0 4px}
+a.cta:hover{background:#22345A}
+a.cta.secondary{background:#fff;color:#14213D !important;border:1px solid #9AA5B1}
+a.cta.secondary:hover{border-color:#14213D}
 .stApp [data-testid="stIconMaterial"], .stApp span[data-testid*="Icon"], .stApp span[translate="no"][aria-hidden="true"],
 .stApp .material-symbols-rounded {font-family:"Material Symbols Rounded" !important;}
 </style>""", unsafe_allow_html=True)
@@ -236,7 +242,7 @@ def neutral_reason(r: Result) -> str:
     word = VERDICT_WORD.get(r.best_color, "")
     if fl is None:
         return f"{word[:1].upper()}{word[1:]}." if word else ""
-    temp = "More than 70 °C" if fl > 70 else f"About {fl:.0f} °C"
+    temp = "70 °C or more" if fl > 70 else f"About {fl:.0f} °C"
     return f"{temp} on the coldest day: {word}."
 
 
@@ -332,8 +338,27 @@ def qv(r: Result, key: str) -> float | None:
     return qr(r, key).p50
 
 
+HOT = "70 °C or more"                            # the one form for the display clip (never ">70", never "≈ >70")
+
+
 def t(v):
-    return "–" if v is None else (">70 °C" if v > 70 else f"{v:.0f} °C")
+    return "–" if v is None else (HOT if v > 70 else f"{v:.0f} °C")
+
+
+def about_t(v):
+    """'about 54 °C' / '70 °C or more' (no 'about' in front of the clip)."""
+    return "–" if v is None else (HOT if v > 70 else f"about {v:.0f} °C")
+
+
+def fix_text(s: str | None) -> str:
+    """Engine prose for the screens: one form for the clip, and the myth hint as 'Myth: … Fact: …'."""
+    s = s or ""
+    s = re.sub(r"(?:about|≈)\s*>\s*70\s*°C", HOT, s)
+    s = re.sub(r">\s*70\s*°C", HOT, s)
+    m = re.match(r"^Myth: you don't need (.+?) for a heat pump\.?$", s.strip())
+    if m:
+        s = f"**Myth:** you need {m.group(1)} for a heat pump.  \n**Fact:** you don't — most radiators work."
+    return s
 
 
 def t_range(rg, fmt=None):
@@ -627,13 +652,15 @@ def flow_span(p10: float | None, p90: float | None) -> str:
         return "–"
     lo, hi = min(p10, p90), max(p10, p90)
     if lo > 70:
-        return ">70 °C"
-    return f"{lo:.0f}–{min(hi, 70):.0f}{'+' if hi > 70 else ''} °C"
+        return HOT
+    if hi > 70:
+        return f"{lo:.0f} °C to {HOT}"
+    return f"{lo:.0f}–{hi:.0f} °C"
 
 
 def clean_text(s: str | None) -> str:
     """Engine prose for display: 'MC' -> 'simulation', '->' -> arrow, ASCII ranges -> en dash. Not escaped."""
-    s = (s or "").strip()
+    s = fix_text((s or "").strip())
     s = re.sub(r"\bthe MC\b", "the simulation", s)
     s = re.sub(r"\bMC\b", "simulation", s)
     s = s.replace("->", "→")
@@ -734,7 +761,8 @@ def rechenweg(r: Result, h: House | None = None):
     st.markdown(f"Heating load (size, age): **{t_range(qr(r, 'heat_load_kw'), kw)}**"
                 + (f"  \nFrom the bill: {t_range(b, kw)}" if b.p50 is not None else ""))
     if r.trace:
-        rows = [{k: _band_text(h, v) if isinstance(v, str) else v for k, v in s.model_dump().items()} for s in r.trace]
+        rows = [{k: fix_text(_band_text(h, v)) if isinstance(v, str) else v for k, v in s.model_dump().items()}
+                for s in r.trace]
         st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
     for extra in (explanations_html(r), other_outputs_html(r)):    # contract v2: only when the logic sent them
         if extra:
@@ -751,39 +779,66 @@ def answer_card(h: House, r: Result | None, key: str):
     title, word = headline(r)
     html(f'<div class="card"><span class="light" style="background:{COL[r.best_color]}"></span>'
          f'<span style="font-size:26px;font-weight:700">{title}</span> <span class="muted">{word}</span>'
-         f'<p style="font-size:16px;margin:12px 0 0">{r.reason}</p></div>')
+         f'<p style="font-size:16px;margin:12px 0 0">{esc(fix_text(r.reason))}</p></div>')
+    red = r.best_color == "red"
+    rg = qr(r, 'flow_temp_c')
+    hot = red or (rg.p50 is not None and rg.p50 > 60)
+    # UI review: the 1-2 sections that say why and what next start open; the rest stay collapsed.
+    if rg.p50 is not None:
+        with st.expander(f"Why this colour · water at {about_t(rg.p50)}", expanded=True):
+            html(scale(r))
+            st.caption((f"Likely {flow_span(rg.p10, rg.p90)} on the coldest day. "
+                        if rg.p10 is not None and rg.p90 is not None else "")
+                       + "Up to 55 °C a heat pump runs efficiently, up to 60 °C it still works; lower is cheaper.")
+    takes = what_it_takes(h, r) if red else []
+    if takes:
+        with st.expander("What would change it", expanded=True):
+            for tt, b in takes:
+                st.markdown(f"**{tt}**  \n{b}")
+            st.caption("Physics only: an installer turns this into parts and a price.")
+    if r.open_checks:
+        n = len(r.open_checks)
+        with st.expander(f"What's still open · {n} thing{'s' if n != 1 else ''}", expanded=not takes):
+            for i, c in enumerate(r.open_checks, 1):
+                st.markdown(f"{i}. {fix_text(c.item)}" + (f" ({fix_text(c.why)})" if c.why else ""))
     top = max((("green", r.p_green), ("yellow", r.p_yellow), ("red", r.p_red)), key=lambda x: x[1])
     with st.expander(f"How sure · {top[1]:.0%} {top[0]}"):
         html(prob_bar(r))
         st.caption(f"Green {r.p_green:.0%} · Yellow {r.p_yellow:.0%} · Red {r.p_red:.0%}")
-    rg = qr(r, 'flow_temp_c')
-    if rg.p50 is not None:
-        with st.expander(f"Water temperature · ≈ {t(rg.p50)}"):
-            html(scale(r))
-            st.caption((f"Likely {t(rg.p10)}–{t(rg.p90)}. " if rg.p10 is not None and rg.p90 is not None else "")
-                       + "Lower is cheaper.")
     if qv(r, 'cost_now_eur') is not None or qv(r, 'cost_hp_eur') is not None:    # optional extra: hide when absent
         sv = qv(r, 'saving_eur')
-        with st.expander("Running cost" + (f" · save ~{eur(sv)}/yr" if sv and sv > 0 else "")):
-            st.markdown(" · ".join(x for x in (
-                f"Today **{eur(qv(r, 'cost_now_eur'))}**" if qv(r, 'cost_now_eur') is not None else "",
-                f"heat pump **{eur(qv(r, 'cost_hp_eur'))}**" if qv(r, 'cost_hp_eur') is not None else "") if x))
+        now_, hp_ = qv(r, 'cost_now_eur'), qv(r, 'cost_hp_eur')
+        # Red / above 60 °C: no saving headline (it reads like good news); a neutral lower-bound line instead.
+        with st.expander("Running cost" + ("" if hot else (f" · save ~{eur(sv)}/yr" if sv and sv > 0 else ""))):
+            if hot:
+                st.markdown(f"At {about_t(rg.p50) if rg.p50 is not None else 'this temperature'} a heat pump runs "
+                            "expensively. The lower-bound estimate is "
+                            + " · ".join(x for x in (
+                                f"heat pump **{eur(hp_)}**/yr" if hp_ is not None else "",
+                                f"today **{eur(now_)}**/yr" if now_ is not None else "") if x) + ".")
+            else:
+                st.markdown(" · ".join(x for x in (
+                    f"Today **{eur(now_)}**" if now_ is not None else "",
+                    f"heat pump **{eur(hp_)}**" if hp_ is not None else "") if x))
             if r.cost_note:
-                st.caption(r.cost_note)
+                st.caption(fix_text(r.cost_note))
             st.caption("Challenge prices. Installation and subsidies come with the quote.")
-    if r.open_checks:
-        n = len(r.open_checks)
-        with st.expander(f"What's still open · {n} thing{'s' if n != 1 else ''}"):
-            for i, c in enumerate(r.open_checks, 1):
-                st.markdown(f"{i}. {c.item}" + (f" ({c.why})" if c.why else ""))
     with st.expander("How we got this"):
         rechenweg(r, h)
     for hint in r.hints:
-        st.caption(hint)
-    if r.next_step:
-        st.button(r.next_step.label, key=f"next_{key}", type="primary", width="stretch")
-        if r.next_step.detail:
-            st.caption(r.next_step.detail)
+        (st.markdown if hint.startswith("Myth") else st.caption)(fix_text(hint))
+    ns = r.next_step
+    if ns and ns.kind == "answer_question":       # "Answer one more question" goes back to the questions page
+        st.button(ns.label, key=f"next_{key}", type="primary", width="stretch",
+                  on_click=lambda: st.session_state.update(step=4))
+        if ns.detail:
+            st.caption(fix_text(ns.detail))
+    elif ns and not red:                          # get a quote / request a check → the request form below
+        html(f'<a class="cta" href="#request" target="_self">{esc(ns.label)} ↓</a>')
+        if ns.detail:
+            st.caption(fix_text(ns.detail[:1].upper() + ns.detail[1:]))
+    elif ns:                                      # red: what would change it is open above; the installer is optional
+        html('<a class="cta secondary" href="#request" target="_self">Talk to an installer anyway ↓</a>')
     if on_tracer(h.building_id):
         st.caption("Computed with the backup engine.")
     elif on_module(h.building_id):
@@ -1108,11 +1163,19 @@ def eval_detail(bid: str, h: House, ref: dict | None, r: Result) -> str:
     sv = qv(r, 'saving_eur')
     cost_note = (f'<div style="font-size:12px;color:var(--muted);grid-column:1/-1">{esc(clean_text(r.cost_note))}</div>'
                  if r.cost_note else "")
-    cost_cell = "" if sv is None else (
-        '<div><div style="font-size:12px;color:var(--muted)">Running cost</div>'
-        f'<div class="num" style="font-size:18px;font-weight:700;color:var(--ink)">{"−" if sv > 0 else "+"}€{abs(sv):,.0f} / yr</div>'
-        f'<div style="font-size:12px;color:var(--muted)">vs. {FUEL_WORD.get(h.fuel_type or "", "the current heating")} today</div></div>'
-        f'{cost_note}')
+    hp_cost = qv(r, 'cost_hp_eur')
+    if r.best_color == "red" or (fl.p50 is not None and fl.p50 > 60):   # no saving headline on red (UI review)
+        cost_cell = "" if hp_cost is None else (
+            '<div><div style="font-size:12px;color:var(--muted)">Running cost, heat pump</div>'
+            f'<div class="num" style="font-size:18px;font-weight:700;color:var(--ink)">€{hp_cost:,.0f} / yr</div>'
+            '<div style="font-size:12px;color:var(--muted)">lower bound; above 60 °C it runs expensively</div></div>'
+            f'{cost_note}')
+    else:
+        cost_cell = "" if sv is None else (
+            '<div><div style="font-size:12px;color:var(--muted)">Running cost</div>'
+            f'<div class="num" style="font-size:18px;font-weight:700;color:var(--ink)">{"−" if sv > 0 else "+"}€{abs(sv):,.0f} / yr</div>'
+            f'<div style="font-size:12px;color:var(--muted)">vs. {FUEL_WORD.get(h.fuel_type or "", "the current heating")} today</div></div>'
+            f'{cost_note}')
     bill_sub = (f"bill says {bill:.1f}" if bill is not None else "" if on_module(bid) else "no bill")
     if ref and ref.get("heating_load_kw"):
         bill_sub = f"reference {ref['heating_load_kw']:.1f}" + (f" · {bill_sub}" if bill_sub else "")
@@ -1491,6 +1554,7 @@ def form_changed(f: str):
     else:
         ss.form[f] = v
     ss.confirmed.pop(f, None)                   # a new form answer beats an older conflict answer for that field
+    ss.setdefault("conflict_dk", set()).discard(f)
     if f == "fuel_type":                        # yearly use is kWh or litres by fuel: drop the one in the wrong unit
         drop = "annual_fuel_kwh" if v == "oil" else "annual_fuel_liters"
         ss.form.pop(drop, None)
@@ -1506,7 +1570,7 @@ def _clear_inputs():
     ss = st.session_state
     ss.form, ss.reads, ss.confirmed, ss.readers = {}, {}, {}, {}
     for k in list(ss.keys()):
-        if k.startswith(("tag_", "q_")) or k in ("read_fail", "text_unused", "example_reads"):
+        if k.startswith(("tag_", "q_")) or k in ("read_fail", "text_unused", "example_reads", "conflict_dk", "use_note"):
             del ss[k]
     for f, *_ in FORM:
         ss[f"pf_{f}"] = None if f in NUM_FIELDS else DK
@@ -1629,7 +1693,9 @@ def form_page(h: House):
             c2.selectbox(label, [DK] + opts, key=key, on_change=form_changed, args=(f,),
                          label_visibility="collapsed", format_func=lambda v, x=f: form_text(x, v))
         src, v = h.source.get(f), getattr(h, f)
-        if v is None:
+        if f in needs_answer(h):
+            tag = "⚠ asked on page 4"
+        elif v is None:
             tag = "—"
         elif src == FORM_MERGE_SRC:
             tag = "form"
@@ -1668,7 +1734,36 @@ def home_house() -> House:
                               f"({src_label(other[0])} says {value_text(h, f, other[1], other[0])})")
     h.conflicts = [c for c in h.conflicts if TEXT_MERGE_SRC not in (c.get("values") or {})]
     ss["text_unused"] = unused
+    # Litres are an oil unit: once the fuel is settled as something else, a litres answer is not that fuel's use.
+    ss["use_note"] = ""
+    if ("fuel_type" not in needs_answer(h) and h.fuel_type not in (None, "oil")
+            and h.annual_fuel_liters is not None):
+        note = (f"The {h.annual_fuel_liters:,.0f} litres from the form are not used: litres are for oil, "
+                f"your heating is {FUEL_WORD.get(h.fuel_type, h.fuel_type)}.")
+        if h.kwh_printed is not None:
+            note += f" Your bill's {h.kwh_printed:,.0f} kWh is used."
+        ss["use_note"] = note
+        h.annual_fuel_liters = None
+        h.source.pop("annual_fuel_liters", None)
     return h
+
+
+USE_FIELDS = ("fuel_type", "annual_fuel_kwh", "annual_fuel_liters")   # one question settles all three
+
+
+def open_conflicts(h: House) -> list[dict]:
+    """Conflicts the owner has not answered yet (an answer or "don't know" closes one)."""
+    ss = st.session_state
+    done = set(ss.get("confirmed") or {}) | set(ss.get("conflict_dk") or ())
+    return [c for c in h.conflicts if c["field"] not in done]
+
+
+def needs_answer(h: House) -> set[str]:
+    """Fields the screens must not show a value for yet: open conflicts (fuel and yearly use go together)."""
+    out = set()
+    for c in open_conflicts(h):
+        out |= set(USE_FIELDS) if c["field"] in USE_FIELDS else {c["field"]}
+    return out
 
 
 # How an input was read (muted line under "We read"). Fallbacks never call the LLM by themselves (Invariant 1).
@@ -1714,9 +1809,20 @@ def read_upload(up, slot: str, mission: str):
 def conflict_picked(f: str, vals: list):
     ss = st.session_state
     i = ss.get(f"q_{f}")
-    if i is None or i >= len(vals):             # "don't know" or nothing
+    if i is None:
+        return
+    if i >= len(vals):                          # "don't know" closes the question; the merge's pick stays
+        ss.setdefault("conflict_dk", set()).add(f)
         return
     ss.confirmed[f] = vals[i]
+
+
+def conflict_reset(f: str):
+    """'Change' next to an answered conflict: ask it again."""
+    ss = st.session_state
+    ss.confirmed.pop(f, None)
+    ss.setdefault("conflict_dk", set()).discard(f)
+    ss.pop(f"q_{f}", None)
 
 
 def show_read(slot: str):
@@ -1745,15 +1851,19 @@ def show_read(slot: str):
         (st.info if found else st.warning)(h.retake_tip or "Some of it was unreadable. One more photo?")
 
 
-def nav(step: int, can_skip: bool) -> str | None:
+def nav(step: int, can_skip: bool, blocked: bool = False) -> str | None:
+    """blocked: forward is disabled (page 4 with an unanswered conflict question)."""
     c1, c2, c3 = st.columns(3)
     act = None
     if step > 1 and c1.button("Back", key=f"back{step}", width="stretch"):
         act = "back"
-    if can_skip and c2.button("Skip", key=f"skip{step}", width="stretch"):
+    if can_skip and c2.button("Skip", key=f"skip{step}", width="stretch", disabled=blocked):
         act = "next"
-    if c3.button("Show my answer" if step == 4 else "Next", key=f"next{step}", type="primary", width="stretch"):
+    if c3.button("Show my answer" if step == 4 else "Next", key=f"next{step}", type="primary", width="stretch",
+                 disabled=blocked):
         act = "next"
+    if blocked:
+        st.caption("Answer the question above first, then we show your answer.")
     return act
 
 
@@ -1766,37 +1876,90 @@ def use_example_text():
     ss.house_text_val = ss.house_text_in = (ROOT / "assets/demo/house_persona_en.txt").read_text(encoding="utf-8").strip()
 
 
+def _use_of(src: str) -> str:
+    """'2,000 litres a year' / '18,002 kWh a year': the yearly use that came with this source ('' if none)."""
+    ss = st.session_state
+    if src == FORM_MERGE_SRC:
+        fm = ss.get("form") or {}
+        if fm.get("annual_fuel_liters") is not None:
+            return f"{float(fm['annual_fuel_liters']):,.0f} litres a year"
+        if fm.get("annual_fuel_kwh") is not None:
+            return f"{float(fm['annual_fuel_kwh']):,.0f} kWh a year"
+        return ""
+    for j in (ss.get("reads") or {}).values():
+        try:
+            d = House.model_validate_json(j)
+        except Exception:
+            continue
+        if d.source.get("fuel_type") != src:
+            continue
+        for f, unit in (("kwh_printed", "kWh"), ("annual_fuel_kwh", "kWh"), ("liters", "litres"), ("m3", "m³")):
+            v = getattr(d, f, None)
+            if v is not None:
+                return f"{v:,.0f} {unit} a year"
+    return ""
+
+
 def conflict_questions(h: House) -> int:
-    """Input conflicts (form vs bill/photo), at most 2, asked before the calculation. The page-4 text never asks:
-    home_house already dropped its disagreements. Returns how many were asked."""
-    ss, asked = st.session_state, 0
+    """Every input conflict (form vs bill/photo), asked before the calculation; answered ones collapse to one line
+    with 'Change'. The page-4 text never asks: home_house already dropped its disagreements. Returns how many are
+    still open (the answer button stays disabled until 0)."""
+    ss, open_n = st.session_state, 0
+    dk = ss.setdefault("conflict_dk", set())
     for c in h.conflicts:
-        if c["field"] in ss.confirmed or asked >= 2:
+        f = c["field"]
+        if f in ss.confirmed or f in dk:
+            ans = value_text(h, f, ss.confirmed[f], "confirmed") if f in ss.confirmed else \
+                f"don't know (we use {value_text(h, f)})"
+            c1, c2 = st.columns([4, 1], vertical_alignment="center")
+            c1.markdown(f"✓ {human_field(f)}: **{ans}**")
+            c2.button("Change", key=f"chg_{f}", on_click=conflict_reset, args=(f,), width="stretch")
             continue
         (sa, va), (sb, vb) = list(c["values"].items())[:2]
-        ta, tb = value_text(h, c["field"], va, sa), value_text(h, c["field"], vb, sb)
+        ta, tb = value_text(h, f, va, sa), value_text(h, f, vb, sb)
+        if f == "fuel_type":                     # show the unit mismatch with the fuel (litres vs kWh)
+            ua, ub = _use_of(sa), _use_of(sb)
+            q = (f"Your {src_label(sa)} says **{ta}**{f' ({ua})' if ua else ''}, your {src_label(sb)} says "
+                 f"**{tb}**{f' ({ub})' if ub else ''}. Which heating do you have?")
+        else:
+            q = f"Your {src_label(sa)} says **{ta}**, your {src_label(sb)} says **{tb}**. Which one is it?"
         labels = [ta, tb, "don't know"]
-        st.radio(f"Your {src_label(sa)} says {ta}, your {src_label(sb)} says {tb}. Which one is it?", [0, 1, 2],
-                 format_func=lambda i, lb=labels: lb[i], index=None, key=f"q_{c['field']}",
-                 on_change=conflict_picked, args=(c["field"], [va, vb]))
-        asked += 1
-    return asked
+        st.radio(q, [0, 1, 2], format_func=lambda i, lb=labels: lb[i], index=None, key=f"q_{f}",
+                 on_change=conflict_picked, args=(f, [va, vb]), horizontal=True)
+        open_n += 1
+    return open_n
 
 
-def text_page(h: House):
+def go_radiator_photo():
+    st.session_state.step = 2
+
+
+def text_page(h: House) -> int:
+    """Page 4: the conflict questions (prominent), the engine's next question, the optional free text.
+    Returns how many conflict questions are still open."""
     ss = st.session_state
-    st.markdown("#### Before your answer")
-    asked = conflict_questions(h)
+    st.markdown("## Before your answer")
+    open_n = 0
+    if h.conflicts:
+        with st.container(border=True, key="conflictbox"):
+            n = len(h.conflicts)
+            st.markdown(f"**{'One thing doesn' if n == 1 else f'{n} things don'}'t match.** "
+                        "Pick the right one, or \"don't know\".")
+            open_n = conflict_questions(h)
+            if ss.get("use_note"):
+                st.caption(ss.use_note)
     try:
         q = _eng_attr("next_question")(h) if _eng_attr("next_question") else None
     except Exception:
         q = None
-    if q and asked < 2:
+    if q and not open_n:
         st.info(q)
-    elif not asked:
+        if "radiator" in q.lower() and "photo" in q.lower():   # the question asks for a photo: offer the way there
+            st.button("Go to the radiator photo", on_click=go_radiator_photo, key="go_rad")
+    elif not h.conflicts:
         html('<p class="ok">✓ No questions for you</p>')
-    st.markdown("## Anything else? (optional)")
-    st.caption("Optional. Tell us anything the form missed — we only read it, "
+    st.markdown("#### Anything else? (optional)")
+    st.caption("Tell us anything the form missed — we only read it, "
                "the numbers come from the form and your bill.")
     st.button("Use the example text", on_click=use_example_text)
     if "house_text_in" not in ss:
@@ -1811,6 +1974,7 @@ def text_page(h: House):
             do_read("text", data, "text/plain", "house_text")
             st.rerun()
     show_read("text")
+    return open_n
 
 
 def tab_homeowner():
@@ -1871,9 +2035,12 @@ def tab_homeowner():
             st.caption("Only the numbers are kept.")
             act = nav(3, True)
         elif ss.step == 4:
-            text_page(home_house())                  # a read in this run happened after the first merge
-            act = nav(4, True)
+            open_n = text_page(home_house())         # a read in this run happened after the first merge
+            act = nav(4, True, blocked=open_n > 0)
         else:
+            if open_conflicts(h):                    # never compute over an unanswered conflict
+                ss.step = 4
+                st.rerun()
             if st.button("Change answers"):
                 ss.step = 1
                 st.rerun()
@@ -1891,13 +2058,17 @@ def tab_homeowner():
         h = home_house()                              # reads in this run happened after the first merge
         html('<div class="card"><b>What we know so far</b></div>')
         seen = set()
-        rows = [(f, lb) for f, lb, *_ in FORM] + [("pipe_system", "Pipes"), ("kwh_printed", "Bill kWh")]
+        rows = [(f, lb) for f, lb, *_ in FORM] + [("pipe_system", "Pipes"), ("kwh_printed", "Use on the bill")]
+        ask = needs_answer(h)
         for f, label in rows:
             v = getattr(h, f)
-            if v is None or f in seen:
+            if v is None or label in seen:
                 continue
-            seen.add(f)
+            seen.add(label)
             c1, c2 = st.columns([3, 1])
+            if f in ask:                             # unresolved conflict: no silent winner
+                c1.markdown(f"{label}: **⚠ Needs your answer**")
+                continue
             c1.markdown(f"{label}: **{value_text(h, f)}**")
             html(f'<span class="pill">{esc(src_label(h.source.get(f)))}</span>', c2)
 
@@ -1913,8 +2084,8 @@ def mailto(subject: str, body: str, to: str = "") -> str:
 
 def request_panel(h: House, r: Result, key: str):
     """Homeowner contact form (last step of the Homeowner flow). Stores what was entered for the Installer footer."""
-    html('<div class="card" style="border:1.5px solid #14213D"><b>Your request is ready</b><br>'
-         '<span class="muted">Just add how to reach you.</span></div>')
+    st.subheader("Your request is ready", anchor="request")    # plain heading; the answer card links here
+    st.caption("Just add how to reach you.")
     name = st.text_input("Name", key=f"name_{key}")
     contact = st.text_input("E-mail or phone", key=f"contact_{key}")
     plz = st.text_input("Postcode", key=f"plz_{key}")
@@ -1932,8 +2103,8 @@ def request_panel(h: House, r: Result, key: str):
         st.download_button("PDF for the installer", pdf, file_name="pre-visit-sheet.pdf", mime="application/pdf",
                            type="primary", width="stretch", key=f"pdf_{key}")
     body = (f"Hello,\n\nplease find my pre-visit sheet attached (HP-Ready first estimate: {r.best_color}, "
-            f"about {t(qr(r, 'flow_temp_c').p50)}).\n\n{name}\n{contact}\n{plz}")
-    st.link_button("Open as e-mail", mailto(request_subject(r), body), width="stretch")
+            f"{about_t(qr(r, 'flow_temp_c').p50)}).\n\n{name}\n{contact}\n{plz}")
+    st.link_button("Open as e-mail", mailto(request_subject(r), body), type="primary", width="stretch")
     st.caption("One page any installer reads in a minute. Nothing is stored.")
 
 # ---------------------------------------------------------------- installer
@@ -1945,7 +2116,7 @@ _NUM = r"(\d+(?:\.\d+)?)"
 
 
 def flow_big(v: float | None) -> str:
-    return "–" if v is None else ("> 70 °C" if v > 70 else f"≈ {v:.0f} °C")
+    return "–" if v is None else (HOT if v > 70 else f"≈ {v:.0f} °C")
 
 
 def visit_pill_text(r: Result) -> str:
@@ -2117,7 +2288,7 @@ def installer_summary(h: House, r: Result) -> str:
     elif fl is None:
         first = "Flow temperature can't be estimated from the data yet."
     elif fl > 70:
-        first = "Needs more than 70 °C flow on the coldest day — well above the ~60 °C a heat pump handles efficiently."
+        first = f"Needs {HOT} flow on the coldest day — well above the ~60 °C a heat pump handles efficiently."
     elif fl > 60:
         first = f"Needs about {fl:.0f} °C flow on the coldest day — above the ~60 °C a heat pump handles efficiently."
     elif fl > 55.5:
@@ -2323,8 +2494,8 @@ def tab_installer():
             req = ss.get("request_sent") if bid == "Homeowner house" else None
             to = (req or {}).get("contact", "")
             greet = f"Hello {req['name']}," if req and req.get("name") else "Hello,"
-            body = (f"{greet}\n\nthank you for your request. HP-Ready first estimate: {r.best_color}, about "
-                    f"{t(qr(r, 'flow_temp_c').p50)} on the coldest day ({VISIT.get(r.visit_type, '').lower()}).\n\n"
+            body = (f"{greet}\n\nthank you for your request. HP-Ready first estimate: {r.best_color}, "
+                    f"{about_t(qr(r, 'flow_temp_c').p50)} on the coldest day ({VISIT.get(r.visit_type, '').lower()}).\n\n"
                     "We'll be in touch to arrange the next step.")
             st.link_button("Reply to homeowner", mailto("Re: " + request_subject(r), body, to if "@" in to else ""),
                            type="primary")
