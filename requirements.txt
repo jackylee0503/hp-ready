@@ -3,5 +3,8 @@ pydantic>=2
 pandas<3
 numpy
 anthropic
-pyarrow<22
 pillow<12
+# Windows dev laptop: Smart App Control blocks newer binary wheels, keep the old pyarrow there.
+# Streamlit Cloud (Linux, Python 3.14): pyarrow<22 has no wheel for 3.14 and fails to build (no cmake).
+pyarrow<22; sys_platform == "win32"
+pyarrow; sys_platform != "win32"
