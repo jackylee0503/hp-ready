@@ -1477,6 +1477,8 @@ FORM = [  # (field, label, options | NUM (min, max, step, unit), value -> text)
 ]
 # Page-1 sections, in this order (the form is long; headers make it scannable).
 FORM_GROUPS = ["The building", "Heating", "Radiators", "People and rooms"]
+GROUP_HINT = {"The building": "year, size, type, insulation", "Heating": "radiators or underfloor, fuel, yearly use",
+              "Radiators": "how many, how big", "People and rooms": "who lives here"}
 GROUP_OF = {"build_year": "The building", "living_area_m2": "The building", "building_type": "The building",
             "renovation": "The building", "heat_distribution": "Heating", "fuel_type": "Heating",
             "annual_fuel_kwh": "Heating", "annual_fuel_liters": "Heating", "dhw_by_boiler": "Heating",
@@ -1704,12 +1706,28 @@ def form_page(h: House):
          '<p class="muted" style="margin:0 0 12px">Fill in what you know. '
          '<b>*</b> marks what matters most for the answer.</p>')
     rows = sorted(form_rows(ss.form.get("fuel_type")), key=lambda r: FORM_GROUPS.index(GROUP_OF[r[0]]))
-    group = None
-    for f, label, opts, _ in rows:
-        if GROUP_OF[f] != group:                 # small section header: the building · heating · radiators · people
-            group = GROUP_OF[f]
-            html(f'<div style="font-size:13px;font-weight:600;color:#4A5565;text-transform:uppercase;'
-                 f'letter-spacing:.04em;margin:18px 0 4px">{esc(group)}</div>')
+    # mentor: too much at once → one tap-to-open section per group, only the first open. Labels stay constant
+    # (a changing label would re-create the expander and close it while the homeowner types).
+    html('<style>.st-key-housegroups [data-testid="stExpander"] summary p{font-size:18px;font-weight:600;color:#14213D}'
+         '.st-key-housegroups [data-testid="stExpanderDetails"]{padding-left:28px;padding-right:12px}'
+         '.st-key-housegroups [data-testid="stExpander"]{margin-bottom:10px}</style>')
+    box = st.container(key="housegroups")
+    for group in FORM_GROUPS:
+        g_rows = [r for r in rows if GROUP_OF[r[0]] == group]
+        if not g_rows:
+            continue
+        hint = GROUP_HINT.get(group, "")
+        with box.expander(f"{group}  :gray[{hint}]" if hint else group, expanded=group == FORM_GROUPS[0]):
+            for f, label, opts, _ in g_rows:
+                form_row(h, f, label, opts)
+    st.divider()
+    example_gallery()                            # below the form: the form is the main path, examples are a shortcut
+
+
+def form_row(h: House, f: str, label: str, opts):
+    """One page-1 field: label (* if it moves the colour), input, and where a value came from if not the form."""
+    ss = st.session_state
+    if True:
         key = f"pf_{f}"
         num = isinstance(opts, tuple)
         if key not in ss:                        # seed once from the stored answers (widget state is dropped off-page)
@@ -1733,8 +1751,6 @@ def form_page(h: House):
             tag = f"{src_label(src)} · {value_text(h, f)}"
         if tag:
             html(f'<span class="src">{esc(tag)}</span>', c3)
-    st.divider()
-    example_gallery()                            # below the form: the form is the main path, examples are a shortcut
 
 
 def home_house() -> House:
