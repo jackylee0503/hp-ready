@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.11, numpy, pandas, Pydantic models from `schema.py`.
 
-**Read first:** `CLAUDE.md` sections "Core principles", "Fixed assumptions", "Result", "Engine" (the spec this plan implements), `docs/TEAM_GIT.md` (git), `schema.py` (all types and constants). Organiser rules: `docs/challenge/03_technical_guardrails.md`, `05_single_vs_two_pipe.md`.
+**Read first:** `CLAUDE.md` sections "Invariants", "Current implementation", "Fixed assumptions", "Result", "Engine" (the spec this plan implements), `docs/TEAM_GIT.md` (git), `schema.py` (all types and constants). Organiser rules: `docs/challenge/03_technical_guardrails.md`, `05_single_vs_two_pipe.md`.
 
 **You own:** `engine.py`, `calibrate.py`. **Don't edit** `schema.py` (field names are frozen; ask Junwoo for new fields), `loader.py`, `extract.py`, `app.py`. You may change the physics if you know better, but keep the function signatures and fill the `Result` fields listed in Task 12.
 

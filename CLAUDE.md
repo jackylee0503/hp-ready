@@ -7,17 +7,29 @@ Build spec for the coding agent. The organiser's own pages (mission, technical g
 ## One line
 
 Give a **homeowner** an honest first answer in under three minutes, from what they already have (energy bill, a few building facts, photos): is the home heat-pump ready (green / yellow / red) with a reason they understand, and **what is still open** that a technician has to check on site. The same result tells nuuEnergy how sure we are, what contradicts itself in the data and what the installer should bring.
-The LLM only **reads** (free-text notes, later bills and photos). A **physics engine** decides. Unknowns become ranges and probabilities, never invented numbers.
+The LLM only **reads**, and only when the homeowner asks for it. The **decision logic** (today a physics baseline, later the team's models) sits behind one contract and can be replaced without touching the UI. Unknowns become ranges and probabilities, never invented numbers.
 
-## Core principles (never break)
+## Team and ownership (2026-10-24)
 
-1. **The LLM is a parser.** It fills schema fields only. No verdicts, recommendations or arithmetic.
-2. **Unknown stays empty.** Unsure field = null. Every field carries a confidence (0-1).
-3. **`engine.py` decides.** Physics + Monte Carlo, calibrated with one parameter on the 3 dev buildings.
-4. **Ask only what matters.** At most one follow-up request: the unknown that moves the verdict most.
-5. **Schema is the contract.** Fields are defined once, in `schema.py`.
-6. **No made-up numbers.** Prices and JAZ come only from the fixed assumptions below. Never output installation cost or subsidy amounts ("installer quote needed").
-7. **Red is earned.** Red means an obstacle in the data we have (organiser: "insufficient evidence for a positive assessment"), never just missing data; missing data is yellow "can't tell yet". Every red carries a reason category and a "this gets you to yellow" path.
+- **Logic: the ML team** (aiming at a paper). They own how inputs become a verdict: `modules/calculation.py`, `modules/bill_recognizer.py`, `modules/image_validation.py`, and any model code they plug in through `orchestrator.py` (`HP_MODULE_<NAME>`). They may replace the physics entirely.
+- **UI and architecture: Junwoo** (with Claude). `app.py`, `orchestrator.py`, `schema.py`, `CONTRACT.md`/`contracts/`, `loader.py`, `extract.py`. Goal: **any logic that honours the contract plugs in and the app, the demo and the evaluation keep working.**
+- When helping the ML team, help them build the model they want; enforce the invariants below, not the physics baseline.
+
+## Invariants (hold for any logic, never break)
+
+1. **The LLM is a parser, and optional.** It only fills schema fields from text or images it is given (no verdicts, recommendations or arithmetic), it runs only when the homeowner explicitly asks (e.g. the optional free-text step), and every answer is reachable without it (dropdowns, bill and photo modules, fallbacks).
+2. **Unknown stays empty.** Unsure or missing = `null`, never `0` or a guess; every value carries a source and a confidence (0-1). Models must accept `null` inputs.
+3. **One contract.** `schema.py` (exported to `contracts/`, described in `CONTRACT.md`) defines every input and output once. Logic lives behind `orchestrator.py` modules; the UI never computes a verdict or a number, it only renders `Result` fields. Contract changes go through Junwoo and are versioned.
+4. **Every verdict explains itself and its uncertainty.** A colour always comes with probabilities or a range, a one-sentence reason, what is still open, and a trace (calculation steps, or for a learned model its inputs and their contributions) that a judge can follow.
+5. **No made-up data presented as real.** Train and calibrate only on real data (organiser buildings, public datasets, real visit outcomes); never generated buildings or visits shown as real, never the 2 evaluation buildings' hidden references. Prices and JAZ come only from the fixed assumptions below; never installation cost or subsidy amounts ("installer quote needed").
+6. **Red is earned.** Red means an obstacle in the data we have (organiser: "insufficient evidence for a positive assessment"), never just missing data; missing data is yellow "can't tell yet". Every red carries a reason and a "this gets you to yellow" path.
+7. **Ask only what matters.** At most two follow-up questions: the unknowns or conflicts that move the verdict most.
+8. **Measured, not claimed.** Any logic is reported the same way: dev verdicts vs reference, heat-load error with leave-one-out, and the difference to the saved baseline (`python loader.py --compare-baseline`). A change that is not measured is not presented.
+
+## Current implementation (replaceable)
+
+- The decision logic today is the **physics baseline** `engine.py` (area × age heating load × one calibrated `k`, EN 442 radiator law, Monte Carlo), with `engine_tracer.py` as the frozen fallback. It stays as the **baseline the team's models are compared against** (paper ablation), not as the required method. Sections "Engine", "Fixed assumptions" and "Data mapping" below describe this baseline.
+- Inputs today: page-1 dropdowns, radiator photo, bill, optional free text. Bill and photo go to the team's modules when they are implemented, else to `extract.py` (cached LLM parser) as fallback.
 
 ## Situation
 
@@ -180,7 +192,7 @@ Other `House` fields (wizard text, photos, step-4 confirmations): `building_type
 
 ## Homeowner inputs (P0-b): a 4-step wizard
 
-> **Update 2026-10-24 (team decision):** page 1 is now a **form** (year, area, type, renovation, heating surfaces, fuel, yearly use kWh/litres, people, rooms, radiators, radiator size, hot water; every field has "don't know"), not free text + exterior photo. LLM reading is being phased out: the bill and the radiator photo go through `orchestrator.py` to the teammates' modules, with `extract.py` only as the fallback. Form values merge with owner-text priority (internal source `"text"`, shown as "form"; `CONTRACT.md` §4). The text below describes the original design.
+> **Update 2026-10-24 (team decision, after a UI review):** the wizard is **1/4 "Your house": dropdowns only** (year band, area in 10 m² steps, type, renovation, heating surfaces, fuel, yearly use in kWh or litres steps, people, rooms, radiators, radiator size, hot water; every field "Don't know"), **2/4 radiator photo**, **3/4 bill**, **4/4 "Anything else? (optional)"**: free text read by the LLM parser only when the homeowner presses "Read it"; conflict questions sit at the top of page 4; "Show my answer" works without it. The form wins over text on owner facts; the bill wins on use, the photo on radiators. Year bands are stored as a representative year inside the band (same W/m² row) with the band in `evidence`, and the UI shows the band. Bill and photo go through `orchestrator.py` to the team's modules, `extract.py` only as fallback. Form values merge with owner-text priority (internal source `"text"`, shown as "form"; `CONTRACT.md` §4). The text below describes the original design.
 
 The homeowner types and snaps instead of filling a form. One thing per screen, progress "1/4", every step after the first can be skipped. Typing only, no voice in the app (phone keyboards can dictate into the text box anyway). The LLM reads each step as soon as it is sent (`extract`, one mission per step), so the user sees what we understood and an unreadable photo is retaken right there (one retake).
 
@@ -405,7 +417,7 @@ Optional live moment: snap a real radiator on stage; Demo-mode cache if the call
 - "Getting one quote today means hours of forms. Here it takes three minutes, and the request is already filled in." (Use a number only if you measured it yourself.)
 - "The installer gets one page: what's confirmed, what's estimated, what to check. They know in a minute whether the trip is worth it."
 - "In Germany, the scarcest resource isn't energy. It's the installer's time."
-- "The LLM reads. Physics decides. Nothing is made up."
+- "The LLM only reads, and only if you ask it to. The logic decides, and it shows its work. Nothing is made up." (Old line, physics baseline only: "The LLM reads. Physics decides.")
 - "Real data contradicts itself. We show which source we trusted and why."
 - "We don't cancel site visits. We make them short and precise."
 - Phase 2: calibrate on nuuEnergy's real visit outcomes.
@@ -424,7 +436,7 @@ Optional live moment: snap a real radiator on stage; Demo-mode cache if the call
 1. Classify: deliverable/judging, data format, reference values, domain fact, constraint (time/team/rules), feedback.
 2. Three-line plain summary (in Korean).
 3. Conflicts: name the sections of this file it touches, or "no conflict".
-4. Minimal edit proposal, changed lines only. Touch principles 1-7 only if the new info demands it.
+4. Minimal edit proposal, changed lines only. Touch the Invariants (1-8) only if the new info demands it.
 5. Priority impact on P0/P1/P2/timeline; when time shrinks cut P2, then P1.
 6. After the user says "ㅇㅋ", edit this file, add one line to the decision log in `docs/DESIGN.md` (with time), tick open questions.
 7. Explain unfamiliar terms in one line using `docs/DESIGN.md` → Domain primer.
