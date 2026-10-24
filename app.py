@@ -2116,7 +2116,7 @@ def tab_homeowner():
                     sharp_image(str(ex), 220)
                 st.caption("Look for the line with your yearly use in kWh or m³. You can cover your name and address.")
                 if ss.get("tag_doc_demo") and ss.reads.get("doc"):
-                    html('<p class="ok">✓ Attached: the example house's demo bill</p>')
+                    html('<p class="ok">✓ Attached: the example house\u2019s demo bill</p>')
                     st.caption("Upload your own bill to replace it.")
             with up_col:
                 read_upload(st.file_uploader("Bill or listing", type=["jpg", "jpeg", "png", "webp", "pdf"],
