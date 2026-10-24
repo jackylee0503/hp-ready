@@ -33,7 +33,7 @@ except ImportError:
     def with_core(r, default_info=None):
         return r
 
-st.set_page_config(page_title="HP-Ready", page_icon="🔥", layout="wide")
+st.set_page_config(page_title="HP-Ready · nuuAI", page_icon="assets/brand/nuuai-favicon-64.png", layout="wide")
 
 # Browser auto-translation (e.g. Chrome → Korean) rewrites the DOM under React and crashes the app with
 # "NotFoundError: Failed to execute 'removeChild' on 'Node'". Mark the page as not translatable.
@@ -2599,7 +2599,15 @@ def _build_id() -> str:
 
 
 top_l, top_r = st.columns([4, 1])
-top_l.markdown("### HP-Ready")
+_LOGO = Path(__file__).parent / "assets" / "brand" / "nuuai-logo.png"
+try:                                          # brand top left: nuuAI logo + product name; text only if the file is missing
+    _b64 = __import__("base64").b64encode(_LOGO.read_bytes()).decode()
+    html('<div style="display:flex;align-items:center;gap:14px;margin:4px 0 6px">'
+         f'<img src="data:image/png;base64,{_b64}" alt="nuuAI" style="height:34px;width:auto">'
+         '<span style="font-size:20px;font-weight:600;color:#4A5565;border-left:1.5px solid #E2E6EA;'
+         'padding-left:14px">HP-Ready</span></div>', top_l)
+except Exception:
+    top_l.markdown("### HP-Ready")
 X.DEMO_ONLY = top_r.toggle("Demo mode", help="Use cached reads only, no live AI calls.")
 if show_installer():                          # HP_SHOW_INSTALLER=1: the Installer tab (out of the MVP) comes back
     t_home, t_eval, t_inst = st.tabs(["Homeowner", "Evaluation", "Installer"])
