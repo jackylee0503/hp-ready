@@ -172,6 +172,14 @@ def evaluate(h: House, quiet: bool = False) -> Result | None:
     try:
         out = _run(h.model_dump_json(), engine_key())
         r = Result.model_validate_json(out["result"])
+        if out["engine"] in ("main", "tracer"):        # contract v2: the baseline engines don't fill the core yet
+            try:
+                from schema import BASELINE_INFO, with_core
+                info = BASELINE_INFO.model_copy(update={"version": "engine_tracer.py"}) if out["engine"] == "tracer" \
+                    else BASELINE_INFO
+                r = with_core(r, info)
+            except ImportError:
+                pass
         ENGINE_ERRS.pop(bid, None)
         ENGINE_USED[bid] = {"engine": out["engine"], "error": out["error"], "module_error": out.get("module_error")}
         return r

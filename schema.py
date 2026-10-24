@@ -5,7 +5,7 @@ The LLM only fills *Obs models (raw values + evidence quote + confidence), never
 """
 from __future__ import annotations
 
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -349,8 +349,58 @@ class Flag(BaseModel):
     kind: FlagKind = "other"
 
 
+# ---------------------------------------------------------------- contract v2: model-agnostic core
+
+class Quantity(BaseModel):
+    """Any number the logic predicts, with its uncertainty. The UI renders unknown keys generically."""
+    key: str                                   # snake_case id; well-known keys in QUANTITY_KEYS
+    label: str = ""                            # human label; empty → from QUANTITY_KEYS or the key
+    unit: str = ""
+    p10: Optional[float] = None
+    p50: Optional[float] = None
+    p90: Optional[float] = None
+    note: str = ""
+
+
+class Explanation(BaseModel):
+    """How one input moved the result (feature contribution, rule fired, …)."""
+    feature: str                               # House field or model feature name
+    value: Optional[str] = None                # the input value as shown to people
+    contribution: Optional[float] = None       # signed effect on `target`, in `unit`
+    target: str = ""                           # what it moves: "flow_temp_c", "p_green", "log_odds_green", …
+    unit: str = ""
+    text: str = ""                             # optional one plain sentence
+
+
+class ModelInfo(BaseModel):
+    """Which logic produced the result; enough to reproduce it (paper)."""
+    name: str = ""
+    version: str = ""
+    kind: Literal["physics", "ml", "hybrid", "rule", "other"] = "other"
+    trained_on: str = ""                       # data description, "" if not trained
+    data_hash: Optional[str] = None
+    seed: Optional[int] = None
+    params: dict[str, Any] = {}
+    metrics: dict[str, float] = {}             # self-reported, shown as "reported by the model"
+
+
+QUANTITY_KEYS = {                              # key → (label, unit) for the UI
+    "flow_temp_c": ("Flow temperature, coldest day", "°C"),
+    "heat_load_kw": ("Heat load", "kW"),
+    "heat_load_bill_kw": ("Heat load from the bill", "kW"),
+    "specific_load_w_m2": ("Heat load per m²", "W/m²"),
+    "cost_now_eur": ("Running cost today", "€/yr"),
+    "cost_hp_eur": ("Running cost, heat pump", "€/yr"),
+    "saving_eur": ("Saving", "€/yr"),
+}
+
+
 class Result(BaseModel):
     building_id: Optional[str] = None
+    # v2 core (any logic): best_color, verdict_basis, p_*, reason, quantities, explanations, open_checks, model_info
+    quantities: list[Quantity] = []
+    explanations: list[Explanation] = []
+    model_info: Optional[ModelInfo] = None
     # verdict
     best_color: Color = "yellow"
     traffic_light: TrafficLight = "unclear"
@@ -397,27 +447,76 @@ class Result(BaseModel):
 
 # ---------------------------------------------------------------- contract check
 
-UI_FIELDS = ("reason", "required_flow_temp_c", "heat_load_kw", "open_checks", "trace", "visit_type", "next_step")
+LEGACY_QUANTITIES = {"flow_temp_c": "required_flow_temp_c", "heat_load_kw": "heat_load_kw",
+                     "heat_load_bill_kw": "heat_load_bill_kw"}
+OPTIONAL_FIELDS = ("visit_type", "next_step", "parts", "options", "flags", "contradictions", "cost_now_eur")
+
+
+def with_core(r: Result, default_info: Optional[ModelInfo] = None) -> Result:
+    """Contract v1 → v2 adapter: fill `quantities` from the legacy Range/cost fields and `model_info`
+    from `default_info` when the logic left them empty. Returns a copy; never raises."""
+    try:
+        out = r.model_copy(deep=True)
+        if not out.quantities:
+            for key, field in LEGACY_QUANTITIES.items():
+                rg = getattr(out, field)
+                if rg.p50 is not None:
+                    out.quantities.append(Quantity(key=key, p10=rg.p10, p50=rg.p50, p90=rg.p90))
+            for key in ("specific_load_w_m2", "cost_now_eur", "cost_hp_eur", "saving_eur"):
+                v = getattr(out, key)
+                if v is not None:
+                    out.quantities.append(Quantity(key=key, p50=v))
+        for q in out.quantities:
+            lab, unit = QUANTITY_KEYS.get(q.key, ("", ""))
+            q.label, q.unit = q.label or lab or q.key.replace("_", " ").capitalize(), q.unit or unit
+        if out.model_info is None and default_info is not None:
+            out.model_info = default_info.model_copy(deep=True)
+        return out
+    except Exception:
+        return r
+
+
+def quantity(r: Result, key: str) -> Optional[Quantity]:
+    """The v2 quantity `key`, falling back to the legacy field (so the UI reads one place)."""
+    q = next((q for q in r.quantities if q.key == key), None)
+    if q is None and key in LEGACY_QUANTITIES:
+        rg = getattr(r, LEGACY_QUANTITIES[key])
+        q = Quantity(key=key, p10=rg.p10, p50=rg.p50, p90=rg.p90) if rg.p50 is not None else None
+    return q
+
+
+def optional_gaps(r: Result) -> list[str]:
+    """Optional fields the logic left empty (the UI shows '–' or falls back); information, not errors."""
+    return [f for f in OPTIONAL_FIELDS if getattr(r, f) in (None, [], "") or
+            (f == "parts" and r.parts.radiators_to_swap is None and r.parts.balancing is None)]
 
 
 def check_result(h: "House", r: Result) -> list[str]:
-    """Problems that would show as '–' or nonsense on screen. Empty list = fine. Never raises."""
+    """Contract v2: problems that break an invariant or the screens. Empty list = fine. Never raises.
+    Required for any logic: colour + probabilities, reason, at least one quantity with a range,
+    something that explains the verdict (explanations or trace), open_checks, model_info."""
     out: list[str] = []
     try:
         core = h.living_area_m2 is not None and h.build_year is not None
         s = r.p_green + r.p_yellow + r.p_red
         if core and abs(s - 1.0) > 0.02:
             out.append(f"probabilities sum to {s:.2f}, not 1")
-        for name in ("required_flow_temp_c", "heat_load_kw", "heat_load_bill_kw"):
-            rg = getattr(r, name)
-            vals = [v for v in (rg.p10, rg.p50, rg.p90) if v is not None]
+        qs = list(r.quantities) + [q for k in LEGACY_QUANTITIES if (q := quantity(r, k)) is not None]
+        for q in qs:
+            vals = [v for v in (q.p10, q.p50, q.p90) if v is not None]
             if vals != sorted(vals):
-                out.append(f"{name}: p10 ≤ p50 ≤ p90 broken ({rg.p10}, {rg.p50}, {rg.p90})")
+                out.append(f"{q.key}: p10 ≤ p50 ≤ p90 broken ({q.p10}, {q.p50}, {q.p90})")
         if core:
-            for name in UI_FIELDS:
-                v = getattr(r, name)
-                if v in (None, "", []) or (isinstance(v, Range) and v.p50 is None):
-                    out.append(f"{name} empty")
+            if not r.reason:
+                out.append("reason empty")
+            if not r.open_checks:
+                out.append("open_checks empty")
+            if not any(q.p50 is not None for q in qs):
+                out.append("no quantity (quantities or legacy ranges)")
+            if not (r.explanations or r.trace):
+                out.append("nothing explains the verdict (explanations or trace)")
+        if r.model_info is None:
+            out.append("model_info missing")
         if r.verdict_basis == "obstacle" and r.best_color != "red":
             out.append("verdict_basis obstacle but colour is not red")
         if r.best_color == "red" and r.verdict_basis == "cannot_tell_yet":
@@ -434,8 +533,9 @@ def check_result(h: "House", r: Result) -> list[str]:
 
 # ---------------------------------------------------------------- JSON contract for the JS modules (CONTRACT.md)
 
-CONTRACT_VERSION = "1-draft"
+CONTRACT_VERSION = "2-draft"
 CONTRACT_MODELS = {"house": House, "result": Result, "bill": BillObs, "image_check": ImageCheck}
+BASELINE_INFO = ModelInfo(name="physics baseline", version="engine.py", kind="physics", trained_on="3 organiser dev buildings (one parameter k)", seed=0, params={"k": DEFAULT.k, "n": 500})
 
 
 def export_contracts(out_dir: str = "contracts") -> list[str]:
@@ -461,7 +561,7 @@ def export_contracts(out_dir: str = "contracts") -> list[str]:
     import engine
     for bid, h, _ in load_buildings():
         if bid in ("B-04", "B-05"):
-            r = engine.installer_brief(h, engine.evaluate(h))
+            r = with_core(engine.installer_brief(h, engine.evaluate(h)), BASELINE_INFO)
             dump(root / "examples" / f"calc_input_{bid}.json", {"house": h.model_dump(mode="json")})
             dump(root / "examples" / f"calc_output_{bid}.json", r.model_dump(mode="json"))
     form = House(building_id="form-example", build_year=1972, living_area_m2=140.0, building_type="terraced",

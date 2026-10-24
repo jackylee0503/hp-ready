@@ -737,5 +737,5 @@
   "title": "House",
   "type": "object",
   "$id": "hp-ready/house.schema.json",
-  "x-contract-version": "1-draft"
+  "x-contract-version": "2-draft"
 }

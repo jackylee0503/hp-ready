@@ -31,6 +31,59 @@
       "title": "Contradiction",
       "type": "object"
     },
+    "Explanation": {
+      "description": "How one input moved the result (feature contribution, rule fired, …).",
+      "properties": {
+        "feature": {
+          "title": "Feature",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        },
+        "contribution": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Contribution"
+        },
+        "target": {
+          "default": "",
+          "title": "Target",
+          "type": "string"
+        },
+        "unit": {
+          "default": "",
+          "title": "Unit",
+          "type": "string"
+        },
+        "text": {
+          "default": "",
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "feature"
+      ],
+      "title": "Explanation",
+      "type": "object"
+    },
     "Flag": {
       "description": "A house-specific issue for the installer (never one of the always-checks).",
       "properties": {
@@ -70,6 +123,78 @@
         "src"
       ],
       "title": "Flag",
+      "type": "object"
+    },
+    "ModelInfo": {
+      "description": "Which logic produced the result; enough to reproduce it (paper).",
+      "properties": {
+        "name": {
+          "default": "",
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "default": "",
+          "title": "Version",
+          "type": "string"
+        },
+        "kind": {
+          "default": "other",
+          "enum": [
+            "physics",
+            "ml",
+            "hybrid",
+            "rule",
+            "other"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "trained_on": {
+          "default": "",
+          "title": "Trained On",
+          "type": "string"
+        },
+        "data_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Data Hash"
+        },
+        "seed": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Seed"
+        },
+        "params": {
+          "additionalProperties": true,
+          "default": {},
+          "title": "Params",
+          "type": "object"
+        },
+        "metrics": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "default": {},
+          "title": "Metrics",
+          "type": "object"
+        }
+      },
+      "title": "ModelInfo",
       "type": "object"
     },
     "NextStep": {
@@ -263,6 +388,71 @@
       "title": "Parts",
       "type": "object"
     },
+    "Quantity": {
+      "description": "Any number the logic predicts, with its uncertainty. The UI renders unknown keys generically.",
+      "properties": {
+        "key": {
+          "title": "Key",
+          "type": "string"
+        },
+        "label": {
+          "default": "",
+          "title": "Label",
+          "type": "string"
+        },
+        "unit": {
+          "default": "",
+          "title": "Unit",
+          "type": "string"
+        },
+        "p10": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "P10"
+        },
+        "p50": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "P50"
+        },
+        "p90": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "P90"
+        },
+        "note": {
+          "default": "",
+          "title": "Note",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key"
+      ],
+      "title": "Quantity",
+      "type": "object"
+    },
     "RadiatorSummary": {
       "properties": {
         "count": {
@@ -443,6 +633,33 @@
       ],
       "default": null,
       "title": "Building Id"
+    },
+    "quantities": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Quantity"
+      },
+      "title": "Quantities",
+      "type": "array"
+    },
+    "explanations": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Explanation"
+      },
+      "title": "Explanations",
+      "type": "array"
+    },
+    "model_info": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ModelInfo"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "best_color": {
       "default": "yellow",
@@ -786,5 +1003,5 @@
   "title": "Result",
   "type": "object",
   "$id": "hp-ready/result.schema.json",
-  "x-contract-version": "1-draft"
+  "x-contract-version": "2-draft"
 }

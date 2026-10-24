@@ -232,5 +232,5 @@
   "title": "ImageCheck",
   "type": "object",
   "$id": "hp-ready/image_check.schema.json",
-  "x-contract-version": "1-draft"
+  "x-contract-version": "2-draft"
 }

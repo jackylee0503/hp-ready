@@ -1,5 +1,84 @@
 {
   "building_id": "B-05",
+  "quantities": [
+    {
+      "key": "flow_temp_c",
+      "label": "Flow temperature, coldest day",
+      "unit": "°C",
+      "p10": 41.7,
+      "p50": 49.8,
+      "p90": 74.0,
+      "note": ""
+    },
+    {
+      "key": "heat_load_kw",
+      "label": "Heat load",
+      "unit": "kW",
+      "p10": 6.69,
+      "p50": 8.83,
+      "p90": 10.87,
+      "note": ""
+    },
+    {
+      "key": "heat_load_bill_kw",
+      "label": "Heat load from the bill",
+      "unit": "kW",
+      "p10": 10.6,
+      "p50": 11.13,
+      "p90": 12.37,
+      "note": ""
+    },
+    {
+      "key": "specific_load_w_m2",
+      "label": "Heat load per m²",
+      "unit": "W/m²",
+      "p10": null,
+      "p50": 70.6,
+      "p90": null,
+      "note": ""
+    },
+    {
+      "key": "cost_now_eur",
+      "label": "Running cost today",
+      "unit": "€/yr",
+      "p10": null,
+      "p50": 2970.0,
+      "p90": null,
+      "note": ""
+    },
+    {
+      "key": "cost_hp_eur",
+      "label": "Running cost, heat pump",
+      "unit": "€/yr",
+      "p10": null,
+      "p50": 1765.0,
+      "p90": null,
+      "note": ""
+    },
+    {
+      "key": "saving_eur",
+      "label": "Saving",
+      "unit": "€/yr",
+      "p10": null,
+      "p50": 1205.0,
+      "p90": null,
+      "note": ""
+    }
+  ],
+  "explanations": [],
+  "model_info": {
+    "name": "physics baseline",
+    "version": "engine.py",
+    "kind": "physics",
+    "trained_on": "3 organiser dev buildings (one parameter k)",
+    "data_hash": null,
+    "seed": 0,
+    "params": {
+      "k": 1.01,
+      "n": 500
+    },
+    "metrics": {}
+  },
   "best_color": "green",
   "traffic_light": "green",
   "verdict_basis": "likely_suitable",

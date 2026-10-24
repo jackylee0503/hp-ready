@@ -167,5 +167,5 @@
   "title": "BillObs",
   "type": "object",
   "$id": "hp-ready/bill.schema.json",
-  "x-contract-version": "1-draft"
+  "x-contract-version": "2-draft"
 }
