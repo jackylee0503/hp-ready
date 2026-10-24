@@ -82,8 +82,11 @@ def t(v):
     return "–" if v is None else (">70 °C" if v > 70 else f"{v:.0f} °C")
 
 
-def t_range(rg):
-    return "–" if rg.p50 is None else f"{t(rg.p50)} ({t(rg.p10)}–{t(rg.p90)})"
+def t_range(rg, fmt=None):
+    fmt = fmt or t
+    if rg.p50 is None:
+        return "–"
+    return fmt(rg.p50) + (f" ({fmt(rg.p10)}–{fmt(rg.p90)})" if rg.p10 is not None and rg.p90 is not None else "")
 
 
 def kw(v):
@@ -117,6 +120,7 @@ def scale(r: Result) -> str:
     def pos(v):
         return max(0.0, min(100.0, (v - 35) / 35 * 100))
     lo, hi, mid = pos(rg.p10 if rg.p10 is not None else rg.p50), pos(rg.p90 if rg.p90 is not None else rg.p50), pos(rg.p50)
+    lo, hi = min(lo, hi), max(lo, hi)
     marks = "".join(
         f'<div style="position:absolute;left:{pos(v)}%;top:36px;width:1.5px;height:8px;background:#6B7684"></div>'
         f'<p style="position:absolute;left:{pos(v)}%;top:46px;margin:0;transform:translateX(-50%);font-size:12px;'
@@ -137,12 +141,12 @@ def scale(r: Result) -> str:
 
 def rechenweg(r: Result):
     b = r.heat_load_bill_kw
-    st.markdown(f"Heating load (size, age): **{kw(r.heat_load_kw.p50)}** ({kw(r.heat_load_kw.p10)}–{kw(r.heat_load_kw.p90)})  \n"
-                f"From the bill: {kw(b.p50)} ({kw(b.p10)}–{kw(b.p90)})")
+    st.markdown(f"Heating load (size, age): **{t_range(r.heat_load_kw, kw)}**  \n"
+                f"From the bill: {t_range(b, kw)}")
     if r.trace:
         st.dataframe(pd.DataFrame([s.model_dump() for s in r.trace]), hide_index=True, width="stretch")
     for c in r.contradictions:
-        st.markdown(f"- **{c.what}** · trusted: {c.trusted}. {c.why}")
+        st.markdown(f"- **{c.what}**" + (f" · trusted: {c.trusted}." if c.trusted else "") + f" {c.why or ''}")
     st.caption("First estimate, not a DIN EN 12831 calculation. " + " · ".join(f"{k}: {v}" for k, v in TERMS.items()))
 
 
@@ -160,15 +164,19 @@ def answer_card(h: House, r: Result | None, key: str):
         st.caption(f"Green {r.p_green:.0%} · Yellow {r.p_yellow:.0%} · Red {r.p_red:.0%}")
     with st.expander(f"Water temperature · ≈ {t(r.required_flow_temp_c.p50)}"):
         html(scale(r))
-        st.caption(f"Likely {t(r.required_flow_temp_c.p10)}–{t(r.required_flow_temp_c.p90)}. Lower is cheaper.")
-    with st.expander("Running cost" + (f" · save ~{eur(r.saving_eur)}/yr" if r.saving_eur else "")):
+        rg = r.required_flow_temp_c
+        st.caption((f"Likely {t(rg.p10)}–{t(rg.p90)}. " if rg.p10 is not None and rg.p90 is not None else "")
+                   + "Lower is cheaper.")
+    with st.expander("Running cost" + (f" · save ~{eur(r.saving_eur)}/yr" if r.saving_eur and r.saving_eur > 0 else "")):
         st.markdown(f"Today **{eur(r.cost_now_eur)}** · heat pump **{eur(r.cost_hp_eur)}**")
         if r.cost_note:
             st.caption(r.cost_note)
         st.caption("Challenge prices. Installation and subsidies come with the quote.")
-    with st.expander(f"What's still open · {len(r.open_checks)} things"):
-        for i, c in enumerate(r.open_checks, 1):
-            st.markdown(f"{i}. {c.item}" + (f" ({c.why})" if c.why else ""))
+    if r.open_checks:
+        n = len(r.open_checks)
+        with st.expander(f"What's still open · {n} thing{'s' if n != 1 else ''}"):
+            for i, c in enumerate(r.open_checks, 1):
+                st.markdown(f"{i}. {c.item}" + (f" ({c.why})" if c.why else ""))
     with st.expander("How we got this"):
         rechenweg(r)
     for hint in r.hints:
@@ -225,7 +233,7 @@ def tab_evaluation():
         if r:
             st.markdown("**Contradictions · which source we trusted**")
             for c in r.contradictions or []:
-                st.markdown(f"- {c.what} → trusted **{c.trusted}**: {c.why}")
+                st.markdown(f"- {c.what}" + (f" → trusted **{c.trusted}**" if c.trusted else "") + (f": {c.why}" if c.why else ""))
             if not r.contradictions:
                 st.caption("None found.")
         o = h.notes_obs
@@ -267,24 +275,68 @@ def home_house() -> House:
     conf = House(building_id="Homeowner", **ss.confirmed)
     conf.source = {f: "confirmed" for f in ss.confirmed}
     conf.confidence = {f: 0.9 for f in ss.confirmed}
-    return X.merge(h, conf)
+    h = X.merge(h, conf)
+    for f in ss.get("cleared", set()):          # "don't know" in step 4 wipes what was read
+        setattr(h, f, None)
+        h.source.pop(f, None)
+        h.confidence.pop(f, None)
+    return h
 
 
 def do_read(slot: str, data: bytes, mime: str, mission: str):
+    ss = st.session_state
     with st.spinner("Reading…"):
         try:
-            st.session_state.reads[slot] = X.extract(data, mime, mission).model_dump_json()
+            ss.reads[slot] = X.extract(data, mime, mission).model_dump_json()
         except Exception as e:
             st.warning(f"We couldn't read that ({e}). You can skip this step.")
+            return
+    for f, *_ in FIX:                           # unconfirmed step-4 fields reseed from the new read
+        if f not in ss.get("confirmed", {}):
+            ss.pop(f"fix_{f}", None)
 
 
 def read_upload(up, slot: str, mission: str):
     if up is None:
         return
     tag = f"{up.name}:{up.size}"
-    if st.session_state.get(f"tag_{slot}") != tag:
-        st.session_state[f"tag_{slot}"] = tag
+    if st.session_state.get(f"tag_{slot}_up") != tag:
+        st.session_state[f"tag_{slot}_up"] = tag      # before the read, so a failing read isn't retried
         do_read(slot, up.getvalue(), up.type or "image/jpeg", mission)
+
+
+FLOAT_FIELDS = ("living_area_m2", "annual_fuel_kwh")
+
+
+def fix_changed(f: str):
+    ss = st.session_state
+    v = ss.get(f"fix_{f}")
+    if v is None or v == "don't know" or v == 0:   # empty (or 0) = don't know
+        ss.confirmed.pop(f, None)
+        ss.cleared.add(f)
+    else:
+        ss.confirmed[f] = v
+        ss.cleared.discard(f)
+
+
+def conflict_picked(f: str, vals: list):
+    ss = st.session_state
+    i = ss.get(f"q_{f}")
+    if i is None or i >= len(vals):             # "don't know" or nothing
+        return
+    v = vals[i]
+    ss.confirmed[f] = v
+    ss.cleared.discard(f)
+    fix = {x: o for x, _, o in FIX}
+    if f not in fix:
+        return
+    if fix[f]:
+        ss[f"fix_{f}"] = v if v in fix[f] else "don't know"
+    else:
+        try:
+            ss[f"fix_{f}"] = float(v) if f in FLOAT_FIELDS else int(v)
+        except (TypeError, ValueError):
+            ss.pop(f"fix_{f}", None)
 
 
 def show_read(slot: str):
@@ -318,6 +370,7 @@ def tab_homeowner():
     ss.setdefault("step", 1)
     ss.setdefault("reads", {})
     ss.setdefault("confirmed", {})
+    ss.setdefault("cleared", set())
     h = home_house()
     left, right = st.columns([3, 2])
     with left:
@@ -347,8 +400,8 @@ def tab_homeowner():
                         "radiator", "radiator")
             photos = sorted(p.name for p in (ROOT / "data/pipe_photos").glob("*.jp*g"))
             pick = st.selectbox("or use an example photo", ["–"] + photos)
-            if pick != "–" and ss.get("tag_radiator") != pick:
-                ss["tag_radiator"] = pick
+            if pick != "–" and ss.get("tag_radiator_ex") != pick:
+                ss["tag_radiator_ex"] = pick
                 do_read("radiator", (ROOT / "data/pipe_photos" / pick).read_bytes(), "image/jpeg", "radiator")
             if pick != "–":
                 st.image(str(ROOT / "data/pipe_photos" / pick), width=320)
@@ -360,7 +413,7 @@ def tab_homeowner():
             read_upload(st.file_uploader("Bill or listing", type=["jpg", "jpeg", "png", "webp", "pdf"], key="up_doc"),
                         "doc", "bill")
             if st.button("Use the demo bill photo"):
-                ss["tag_doc"] = "demo"
+                ss["tag_doc_demo"] = "demo"
                 do_read("doc", (ROOT / "assets/demo/bill_demo_gas_2025_photo.jpg").read_bytes(), "image/jpeg", "bill")
             show_read("doc")
             st.caption("Only the numbers are kept.")
@@ -368,33 +421,41 @@ def tab_homeowner():
         elif ss.step == 4:
             st.markdown("## Is this right?")
             st.caption("Tap to fix.")
-            for f, label, opts in FIX:
-                v = getattr(h, f)
+            for f, label, opts in FIX:                # `confirmed` is written only by on_change callbacks
+                v, key = getattr(h, f), f"fix_{f}"
                 c1, c2, c3 = st.columns([2, 3, 1])
                 c1.markdown(label)
                 if opts:
                     choices = ["don't know"] + opts
-                    new = c2.selectbox(label, choices, index=choices.index(v) if v in choices else 0,
-                                       key=f"fix_{f}", label_visibility="collapsed")
-                    new = None if new == "don't know" else new
+                    if key not in ss:
+                        ss[key] = v if v in choices else "don't know"
+                    c2.selectbox(label, choices, key=key, label_visibility="collapsed", on_change=fix_changed, args=(f,))
+                elif f in FLOAT_FIELDS:
+                    if key not in ss:
+                        ss[key] = None if v is None else float(v)
+                    c2.number_input(label, min_value=0.0, value=None, step=1.0 if f == "living_area_m2" else 100.0, format="%.0f",
+                                    key=key, label_visibility="collapsed", help="empty = don't know",
+                                    on_change=fix_changed, args=(f,))
                 else:
-                    new = c2.number_input(label, min_value=0, value=int(v or 0), step=1, key=f"fix_{f}",
-                                          label_visibility="collapsed", help="0 = don't know")
-                    new = None if new == 0 else new
+                    if key not in ss:
+                        ss[key] = None if v is None else int(v)
+                    c2.number_input(label, min_value=0, value=None, step=1, key=key, label_visibility="collapsed",
+                                    help="empty = don't know", on_change=fix_changed, args=(f,))
                 html(f'<span class="pill">{h.source.get(f, "missing")}</span>', c3)
-                if new is not None and new != v:
-                    ss.confirmed[f] = new
             asked = 0
             for c in h.conflicts:
                 if c["field"] in ss.confirmed or asked >= 2:
                     continue
                 (sa, va), (sb, vb) = list(c["values"].items())[:2]
-                pick = st.radio(f"Your {sa} says {va}, your {sb} says {vb}. Which one is it?",
-                                [va, vb, "don't know"], index=None, key=f"q_{c['field']}")
-                if pick not in (None, "don't know"):
-                    ss.confirmed[c["field"]] = pick
+                labels = [str(va), str(vb), "don't know"]
+                st.radio(f"Your {sa} says {va}, your {sb} says {vb}. Which one is it?", [0, 1, 2],
+                         format_func=lambda i, lb=labels: lb[i], index=None, key=f"q_{c['field']}",
+                         on_change=conflict_picked, args=(c["field"], [va, vb]))
                 asked += 1
-            q = engine.next_question(home_house()) if engine is not None and hasattr(engine, "next_question") else None
+            try:
+                q = engine.next_question(home_house()) if engine is not None and hasattr(engine, "next_question") else None
+            except Exception:
+                q = None
             if q and asked < 2:
                 st.info(q)
             elif not asked:
@@ -415,12 +476,19 @@ def tab_homeowner():
             ss.step -= 1
             st.rerun()
     with right:
+        h = home_house()                              # reads in this run happened after the first merge
         html('<div class="card"><b>What we know so far</b> <span class="muted">tap to fix</span></div>')
+        fmts = {**dict(CHIPS), "renovation": "{}", "radiator_count": "{}", "radiator_size": "{}", "occupants": "{}",
+                "kwh_printed": "{:,.0f} kWh"}
         for f, label, _ in FIX + [("pipe_system", "Pipes", None), ("kwh_printed", "Bill kWh", None)]:
             v = getattr(h, f)
             if v is not None:
+                try:
+                    s = fmts.get(f, "{}").format(v)
+                except (ValueError, TypeError):
+                    s = str(v)
                 c1, c2 = st.columns([3, 1])
-                c1.markdown(f"{label}: **{v}**")
+                c1.markdown(f"{label}: **{s.replace('_', ' ')}**")
                 html(f'<span class="pill">{h.source.get(f, "")}</span>', c2)
 
 
