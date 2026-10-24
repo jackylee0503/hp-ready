@@ -253,7 +253,7 @@ class House(BaseModel):
             return None
         if v != v or v in (float("inf"), float("-inf")):
             return None
-        lo, hi = {"build_year": (1800, 2100), "current_flow_temp_c": (15, 120), "occupants": (1, 60),
+        lo, hi = {"build_year": (1000, 2100), "current_flow_temp_c": (15, 120), "occupants": (1, 60),
                   "rooms": (1, 100), "radiator_count": (0, 200), "valves_to_replace": (0, 200),
                   "living_area_m2": (5, 5000)}.get(info.field_name, (0.001, 1e9))
         return v if lo <= v <= hi else None
