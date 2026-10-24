@@ -2038,6 +2038,25 @@ def bill_example_png() -> bytes | None:
         return None
 
 
+def sharp_image(src, width: int, where=st):
+    """An example picture that stays crisp on high-DPI screens: st.image(width=…) sends a copy resized to exactly
+    `width` px, which looks blurry on a 2× display. Send ~3× the pixels and let the browser scale it down."""
+    try:
+        import base64
+        import io
+
+        from PIL import Image, ImageOps
+        im = ImageOps.exif_transpose(Image.open(io.BytesIO(src) if isinstance(src, bytes) else src)).convert("RGB")
+        im.thumbnail((width * 3, width * 6))
+        buf = io.BytesIO()
+        im.save(buf, "JPEG", quality=90)
+        html(f'<img src="data:image/jpeg;base64,{base64.b64encode(buf.getvalue()).decode()}" '
+             f'style="width:{width}px;max-width:100%;height:auto;border-radius:12px;display:block;margin-bottom:6px">',
+             where)
+    except Exception:
+        where.image(src, width=width)
+
+
 STEPS = ["Your house", "Radiator", "Bill", "Check & answer"]
 
 
@@ -2071,7 +2090,7 @@ def tab_homeowner():
             st.caption("From the side, pipes in view.")
             up_col, ex_col = st.columns([3, 2])
             with ex_col:                                 # what a usable photo looks like
-                st.image(str(ROOT / "data/pipe_photos/05_zweirohr-vermutet_kompakt.jpeg"), width=200)
+                sharp_image(str(ROOT / "data/pipe_photos/05_zweirohr-vermutet_kompakt.jpeg"), 200)
                 st.caption("Like this: the whole radiator from the side, the valve and both pipes in view.")
             with up_col:
                 read_upload(st.file_uploader("Radiator photo", type=["jpg", "jpeg", "png", "webp"], key="up_rad",
@@ -2084,7 +2103,7 @@ def tab_homeowner():
                 ss["tag_radiator_ex"] = pick
                 do_read("radiator", (ROOT / "data/pipe_photos" / pick).read_bytes(), "image/jpeg", "radiator")
             if pick != "–":
-                st.image(str(ROOT / "data/pipe_photos" / pick), width=320)
+                sharp_image(str(ROOT / "data/pipe_photos" / pick), 320)
             show_read("radiator")
             act = nav(2, True)
         elif ss.step == 3:
@@ -2092,8 +2111,8 @@ def tab_homeowner():
             st.caption("Optional. Photo, PDF or screenshot.")
             up_col, ex_col = st.columns([3, 2])
             with ex_col:                                 # what a usable bill looks like (shown once, straightened)
-                ex_img = bill_example_png()
-                st.image(ex_img if ex_img else str(ROOT / DEMO_BILL), width=220)
+                ex = ROOT / "assets/demo/bill_demo_example.png"      # rendered from the demo PDF (sharp)
+                sharp_image(str(ex) if ex.exists() else (bill_example_png() or str(ROOT / DEMO_BILL)), 220)
                 st.caption("Like this: the page with your yearly use in kWh or m³. You can cover your name and address.")
                 if ss.get("tag_doc_demo") and ss.reads.get("doc"):
                     html('<p class="ok">✓ Attached: the demo bill</p>')
