@@ -1,0 +1,11 @@
+{
+  "expected": "radiator",
+  "usable": false,
+  "reason": "blurry",
+  "retake_tip": "Hold the phone still and tap the radiator to focus, then take it again.",
+  "width_px": 1568,
+  "height_px": 1176,
+  "sharpness": 18.0,
+  "brightness": 0.47,
+  "radiator": null
+}

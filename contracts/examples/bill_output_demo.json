@@ -1,0 +1,20 @@
+{
+  "bill_carrier": "Erdgas",
+  "kwh_printed": 18002.0,
+  "m3": 1651.0,
+  "zustandszahl": 0.9523,
+  "brennwert": 11.45,
+  "liters": null,
+  "period_start": "2025-01-01",
+  "period_end": "2025-12-31",
+  "bill_total_eur": 2462.12,
+  "monthly_advance_eur": 205.0,
+  "evidence": {
+    "kwh_printed": "Verbrauch 18.002 kWh"
+  },
+  "confidence": {
+    "kwh_printed": 0.95
+  },
+  "missing": {},
+  "retake_tip": null
+}

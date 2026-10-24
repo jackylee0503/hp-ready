@@ -1,0 +1,790 @@
+{
+  "$defs": {
+    "Contradiction": {
+      "properties": {
+        "what": {
+          "title": "What",
+          "type": "string"
+        },
+        "sources": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Sources",
+          "type": "array"
+        },
+        "trusted": {
+          "default": "",
+          "title": "Trusted",
+          "type": "string"
+        },
+        "why": {
+          "default": "",
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "what"
+      ],
+      "title": "Contradiction",
+      "type": "object"
+    },
+    "Flag": {
+      "description": "A house-specific issue for the installer (never one of the always-checks).",
+      "properties": {
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "src": {
+          "enum": [
+            "notes",
+            "bill",
+            "area_rooms",
+            "not_documented",
+            "data",
+            "site"
+          ],
+          "title": "Src",
+          "type": "string"
+        },
+        "kind": {
+          "default": "other",
+          "enum": [
+            "contradiction",
+            "pipe",
+            "radiators",
+            "valves",
+            "unused_area",
+            "site",
+            "other"
+          ],
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text",
+        "src"
+      ],
+      "title": "Flag",
+      "type": "object"
+    },
+    "NextStep": {
+      "properties": {
+        "kind": {
+          "enum": [
+            "quote",
+            "site_check",
+            "answer_question",
+            "path_to_yellow"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "detail": {
+          "default": "",
+          "title": "Detail",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "label"
+      ],
+      "title": "NextStep",
+      "type": "object"
+    },
+    "OpenCheck": {
+      "properties": {
+        "item": {
+          "title": "Item",
+          "type": "string"
+        },
+        "why": {
+          "default": "",
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "item"
+      ],
+      "title": "OpenCheck",
+      "type": "object"
+    },
+    "Option": {
+      "description": "One way to reach 55 °C (step 6b). Numbers only; the app phrases it.",
+      "properties": {
+        "kind": {
+          "enum": [
+            "radiators",
+            "insulation",
+            "pipe_loop",
+            "none"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "add_rated_kw_55": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Add Rated Kw 55"
+        },
+        "add_rated_kw_60": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Add Rated Kw 60"
+        },
+        "rated_kw_today": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rated Kw Today"
+        },
+        "loss_cut_pct": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Loss Cut Pct"
+        },
+        "note": {
+          "default": "",
+          "title": "Note",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "Option",
+      "type": "object"
+    },
+    "Parts": {
+      "properties": {
+        "radiators_to_swap": {
+          "anyOf": [
+            {
+              "maxItems": 3,
+              "minItems": 3,
+              "prefixItems": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "integer"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Radiators To Swap"
+        },
+        "radiators_note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Radiators Note"
+        },
+        "valves": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Valves"
+        },
+        "balancing": {
+          "anyOf": [
+            {
+              "enum": [
+                "needed",
+                "check"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Balancing"
+        }
+      },
+      "title": "Parts",
+      "type": "object"
+    },
+    "RadiatorSummary": {
+      "properties": {
+        "count": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Count"
+        },
+        "size_assumed": {
+          "anyOf": [
+            {
+              "enum": [
+                "small",
+                "medium",
+                "large"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Size Assumed"
+        },
+        "rated_kw": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rated Kw"
+        },
+        "needed_rated_kw_55": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Needed Rated Kw 55"
+        },
+        "needed_rated_kw_60": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Needed Rated Kw 60"
+        },
+        "share": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Share"
+        },
+        "margin_pct": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Margin Pct"
+        }
+      },
+      "title": "RadiatorSummary",
+      "type": "object"
+    },
+    "Range": {
+      "properties": {
+        "p10": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "P10"
+        },
+        "p50": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "P50"
+        },
+        "p90": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "P90"
+        }
+      },
+      "title": "Range",
+      "type": "object"
+    },
+    "Step": {
+      "properties": {
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "string"
+        },
+        "assumption": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Assumption"
+        }
+      },
+      "required": [
+        "label",
+        "value"
+      ],
+      "title": "Step",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "building_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Building Id"
+    },
+    "best_color": {
+      "default": "yellow",
+      "enum": [
+        "green",
+        "yellow",
+        "red"
+      ],
+      "title": "Best Color",
+      "type": "string"
+    },
+    "traffic_light": {
+      "default": "unclear",
+      "enum": [
+        "green",
+        "yellow",
+        "red",
+        "unclear"
+      ],
+      "title": "Traffic Light",
+      "type": "string"
+    },
+    "verdict_basis": {
+      "default": "cannot_tell_yet",
+      "enum": [
+        "likely_suitable",
+        "checks_remain",
+        "cannot_tell_yet",
+        "obstacle"
+      ],
+      "title": "Verdict Basis",
+      "type": "string"
+    },
+    "boundary": {
+      "default": false,
+      "title": "Boundary",
+      "type": "boolean"
+    },
+    "reason": {
+      "default": "",
+      "title": "Reason",
+      "type": "string"
+    },
+    "reason_category": {
+      "anyOf": [
+        {
+          "enum": [
+            "temperature",
+            "insulation_first",
+            "pipe_system"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reason Category"
+    },
+    "p_green": {
+      "default": 0.0,
+      "title": "P Green",
+      "type": "number"
+    },
+    "p_yellow": {
+      "default": 0.0,
+      "title": "P Yellow",
+      "type": "number"
+    },
+    "p_red": {
+      "default": 0.0,
+      "title": "P Red",
+      "type": "number"
+    },
+    "required_flow_temp_c": {
+      "$ref": "#/$defs/Range",
+      "default": {
+        "p10": null,
+        "p50": null,
+        "p90": null
+      }
+    },
+    "heat_load_kw": {
+      "$ref": "#/$defs/Range",
+      "default": {
+        "p10": null,
+        "p50": null,
+        "p90": null
+      }
+    },
+    "heat_load_bill_kw": {
+      "$ref": "#/$defs/Range",
+      "default": {
+        "p10": null,
+        "p50": null,
+        "p90": null
+      }
+    },
+    "specific_load_w_m2": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Specific Load W M2"
+    },
+    "jaz_bucket": {
+      "anyOf": [
+        {
+          "enum": [
+            "underfloor",
+            "le55",
+            "55to60",
+            "gt60"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Jaz Bucket"
+    },
+    "path_to_yellow": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Path To Yellow",
+      "type": "array"
+    },
+    "cost_now_eur": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Cost Now Eur"
+    },
+    "cost_hp_eur": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Cost Hp Eur"
+    },
+    "saving_eur": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Saving Eur"
+    },
+    "cost_note": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Cost Note"
+    },
+    "contradictions": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Contradiction"
+      },
+      "title": "Contradictions",
+      "type": "array"
+    },
+    "site_flags": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Site Flags",
+      "type": "array"
+    },
+    "open_checks": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/OpenCheck"
+      },
+      "title": "Open Checks",
+      "type": "array"
+    },
+    "hints": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Hints",
+      "type": "array"
+    },
+    "next_question": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Next Question"
+    },
+    "trace": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Step"
+      },
+      "title": "Trace",
+      "type": "array"
+    },
+    "confidence": {
+      "default": 0.0,
+      "title": "Confidence",
+      "type": "number"
+    },
+    "lead_score": {
+      "default": 0.0,
+      "title": "Lead Score",
+      "type": "number"
+    },
+    "visit_type": {
+      "anyOf": [
+        {
+          "enum": [
+            "remote_quote",
+            "visit_with_parts",
+            "hold"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Visit Type"
+    },
+    "parts": {
+      "$ref": "#/$defs/Parts",
+      "default": {
+        "radiators_to_swap": null,
+        "radiators_note": null,
+        "valves": null,
+        "balancing": null
+      }
+    },
+    "installer_checklist": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Installer Checklist",
+      "type": "array"
+    },
+    "next_photo": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Next Photo"
+    },
+    "next_step": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/NextStep"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "options": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Option"
+      },
+      "title": "Options",
+      "type": "array"
+    },
+    "radiators": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RadiatorSummary"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "flags": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Flag"
+      },
+      "title": "Flags",
+      "type": "array"
+    },
+    "always_checks": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Always Checks",
+      "type": "array"
+    }
+  },
+  "title": "Result",
+  "type": "object",
+  "$id": "hp-ready/result.schema.json",
+  "x-contract-version": "1-draft"
+}

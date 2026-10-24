@@ -1,0 +1,188 @@
+{
+  "building_id": "B-04",
+  "best_color": "red",
+  "traffic_light": "red",
+  "verdict_basis": "obstacle",
+  "boundary": false,
+  "reason": "There is an obstacle: your radiators would need about >70 °C on the coldest days, above the 60 °C a heat pump handles well; bigger radiators or less heat loss would fix it.",
+  "reason_category": "insulation_first",
+  "p_green": 0.01,
+  "p_yellow": 0.088,
+  "p_red": 0.902,
+  "required_flow_temp_c": {
+    "p10": 60.2,
+    "p50": 73.2,
+    "p90": 110.9
+  },
+  "heat_load_kw": {
+    "p10": 11.61,
+    "p50": 14.05,
+    "p90": 16.01
+  },
+  "heat_load_bill_kw": {
+    "p10": 9.05,
+    "p50": 9.5,
+    "p90": 10.56
+  },
+  "specific_load_w_m2": 87.8,
+  "jaz_bucket": "gt60",
+  "path_to_yellow": [
+    "Add about 19.5 kW radiator output for 55 °C (11.2 kW for 60 °C); today 18.0 kW.",
+    "Or cut the heat loss by about 52% (insulation or windows) to reach 55 °C with today's radiators.",
+    "Single-pipe loop: larger radiators at the end of the loop, a higher flow temperature, or converting parts of the system (installer to check bypasses and balancing)."
+  ],
+  "cost_now_eur": 4250.0,
+  "cost_hp_eur": 2043.0,
+  "saving_eur": 2207.0,
+  "cost_note": "At least this much: the real running cost is higher above 60 °C.",
+  "contradictions": [],
+  "site_flags": [],
+  "open_checks": [
+    {
+      "item": "Radiator types and sizes are not documented: a technician checks them room by room.",
+      "why": "radiator size decides the water temperature"
+    },
+    {
+      "item": "Single-pipe system: a technician checks the loop (bypasses, balancing, end radiators).",
+      "why": "later radiators get cooler water"
+    },
+    {
+      "item": "Exact heating load, electrical capacity and where the outdoor unit can go.",
+      "why": "always checked on site"
+    }
+  ],
+  "hints": [
+    "Better windows or insulation may be worth it: the house loses more heat than 75 W per m².",
+    "Myth: you don't need underfloor heating or a full renovation for a heat pump."
+  ],
+  "next_question": "How big is your biggest radiator? A photo from the side, pipes in view, tells us.",
+  "trace": [
+    {
+      "label": "Fuel per year",
+      "value": "25,000 kWh",
+      "assumption": "stated yearly use"
+    },
+    {
+      "label": "Useful heat Q_heat = fuel × η",
+      "value": "25,000 × 0.88 = 22,000 kWh",
+      "assumption": "organiser default η 0.88 (old boiler loses ~12 %)"
+    },
+    {
+      "label": "Hot water Q_dhw",
+      "value": "3,000 kWh",
+      "assumption": "1000 kWh × 3 people (organiser)"
+    },
+    {
+      "label": "Space heat Q_space = Q_heat − Q_dhw",
+      "value": "19,000 kWh",
+      "assumption": null
+    },
+    {
+      "label": "Heated area",
+      "value": "160 m²",
+      "assumption": "living area as documented"
+    },
+    {
+      "label": "W/m² (age × renovation)",
+      "value": "85 W/m²",
+      "assumption": "built 1987, unrenovated / unknown (renovation unknown → unrenovated column); organiser band 1980s-1990s: 80-120 · renovated: 40-60; first estimate, not a DIN EN 12831 calculation"
+    },
+    {
+      "label": "Heating load (point) = k × W/m² × area",
+      "value": "1.01 × 85 W/m² × 160 m² = 13.7 kW",
+      "assumption": "k is the only calibrated parameter (3 dev buildings)"
+    },
+    {
+      "label": "Heating load range (MC p10-p50-p90)",
+      "value": "11.6 – 14.1 – 16.0 kW",
+      "assumption": "N=500, seed 0: W/m² × U(0.8, 1.2)"
+    },
+    {
+      "label": "Specific load",
+      "value": "88 W/m²",
+      "assumption": "hint above 75 W/m² (organiser)"
+    },
+    {
+      "label": "Bill-based load = Q_space / full-load hours",
+      "value": "9.1 – 9.5 – 10.6 kW",
+      "assumption": "2,100 / 2,000 / 1,800 h (organiser); cross-check only, the verdict uses area × age"
+    },
+    {
+      "label": "Both methods, combined range",
+      "value": "9.1 – 16.0 kW",
+      "assumption": "shown because both exist (organiser); verdict uses area × age"
+    },
+    {
+      "label": "Radiator output ΣΦ_n (75/65/20 °C)",
+      "value": "12 × 1.5 kW = 18.0 kW",
+      "assumption": "count stated; size unknown → medium (MC 25/50/25 small/medium/large) (Kermi/Buderus EN 442)"
+    },
+    {
+      "label": "Required flow temperature (point)",
+      "value": "20 + 40.6 + 4 + 7.5 = 72.1 °C",
+      "assumption": "ΔT = 50 × (13.7 / 18.0)^(1/1.3), spread 8 K"
+    },
+    {
+      "label": "Pipe system",
+      "value": "+5..10 K",
+      "assumption": "single-pipe confirmed: +5..10 K (point +7.5 K, estimated)"
+    },
+    {
+      "label": "Flow temperature range (MC p10-p50-p90)",
+      "value": "60.2 – 73.2 – 110.9 °C",
+      "assumption": "G 0.01 / Y 0.09 / R 0.90; verdict = colour of p50"
+    },
+    {
+      "label": "JAZ (seasonal efficiency)",
+      "value": "2.8",
+      "assumption": "above 60 °C not in the table: 2.8 used as a lower bound"
+    },
+    {
+      "label": "Cost today",
+      "value": "€4,250/yr",
+      "assumption": "25,000 kWh × 0.17 €/kWh (challenge price)"
+    },
+    {
+      "label": "Cost with heat pump",
+      "value": "€2,043/yr",
+      "assumption": "22,000 kWh / JAZ 2.8 × 0.26 €/kWh"
+    },
+    {
+      "label": "Saving",
+      "value": "€2,207/yr",
+      "assumption": "running cost only; installation and subsidies come with the quote"
+    }
+  ],
+  "confidence": 0.78,
+  "lead_score": 0.076,
+  "visit_type": "hold",
+  "parts": {
+    "radiators_to_swap": [
+      12,
+      12,
+      12
+    ],
+    "radiators_note": "swapping every radiator may not be enough: add radiators or reduce heat loss; current size unknown, assumed medium",
+    "valves": null,
+    "balancing": "needed"
+  },
+  "installer_checklist": [
+    "Single-pipe loop: check bypasses and balancing; options: larger radiators at the end of the loop, higher flow temperature, converting parts of the system",
+    "Radiator types/sizes not documented: measure room by room",
+    "valve blocks say nothing about the pipe system",
+    "Exact heating load (DIN EN 12831) and room-by-room radiator sizing",
+    "Electrical capacity and meter cabinet",
+    "Hydraulics and hydraulic balancing",
+    "Outdoor-unit position, sound distance and permits"
+  ],
+  "next_photo": "Your biggest radiator, from the side, pipes in view.",
+  "next_step": {
+    "kind": "path_to_yellow",
+    "label": "See what gets you to yellow",
+    "detail": "or talk to an installer anyway"
+  },
+  "options": [],
+  "radiators": null,
+  "flags": [],
+  "always_checks": []
+}

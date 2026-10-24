@@ -1,0 +1,171 @@
+{
+  "description": "Raw numbers only; m³ → kWh happens in the engine.",
+  "properties": {
+    "bill_carrier": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Bill Carrier"
+    },
+    "kwh_printed": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Kwh Printed"
+    },
+    "m3": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "M3"
+    },
+    "zustandszahl": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Zustandszahl"
+    },
+    "brennwert": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Brennwert"
+    },
+    "liters": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Liters"
+    },
+    "period_start": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Period Start"
+    },
+    "period_end": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Period End"
+    },
+    "bill_total_eur": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Bill Total Eur"
+    },
+    "monthly_advance_eur": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Monthly Advance Eur"
+    },
+    "evidence": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "default": {},
+      "title": "Evidence",
+      "type": "object"
+    },
+    "confidence": {
+      "additionalProperties": {
+        "type": "number"
+      },
+      "default": {},
+      "title": "Confidence",
+      "type": "object"
+    },
+    "missing": {
+      "additionalProperties": {
+        "enum": [
+          "not_visible",
+          "blurry",
+          "ambiguous",
+          "wrong_object"
+        ],
+        "type": "string"
+      },
+      "default": {},
+      "title": "Missing",
+      "type": "object"
+    },
+    "retake_tip": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Retake Tip"
+    }
+  },
+  "title": "BillObs",
+  "type": "object",
+  "$id": "hp-ready/bill.schema.json",
+  "x-contract-version": "1-draft"
+}

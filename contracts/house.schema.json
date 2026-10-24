@@ -1,0 +1,741 @@
+{
+  "$defs": {
+    "NotesObs": {
+      "description": "Facts from free-text notes. `evidence[field]` = one-line quote, `confidence[field]` = 0..1.",
+      "properties": {
+        "u_values": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "default": {},
+          "title": "U Values",
+          "type": "object"
+        },
+        "extra_heat_source": {
+          "anyOf": [
+            {
+              "enum": [
+                "wood_stove",
+                "tiled_stove",
+                "heat_pump",
+                "none"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Extra Heat Source"
+        },
+        "extra_source_all_winter": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Extra Source All Winter"
+        },
+        "solar_thermal_dhw": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Solar Thermal Dhw"
+        },
+        "unheated_area_note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unheated Area Note"
+        },
+        "insulation_measures": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Insulation Measures"
+        },
+        "glazing": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Glazing"
+        },
+        "building_type": {
+          "anyOf": [
+            {
+              "enum": [
+                "detached",
+                "semi_detached",
+                "terraced",
+                "apartment"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Building Type"
+        },
+        "evidence": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "title": "Evidence",
+          "type": "object"
+        },
+        "confidence": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "default": {},
+          "title": "Confidence",
+          "type": "object"
+        },
+        "method": {
+          "default": "keywords",
+          "enum": [
+            "llm",
+            "cache",
+            "keywords"
+          ],
+          "title": "Method",
+          "type": "string"
+        }
+      },
+      "title": "NotesObs",
+      "type": "object"
+    }
+  },
+  "description": "All value fields Optional: unknown stays None (principle 2).",
+  "properties": {
+    "building_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Building Id"
+    },
+    "build_year": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Build Year"
+    },
+    "living_area_m2": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Living Area M2"
+    },
+    "renovation": {
+      "anyOf": [
+        {
+          "enum": [
+            "unrenovated",
+            "partially",
+            "fully"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Renovation"
+    },
+    "heat_distribution": {
+      "anyOf": [
+        {
+          "enum": [
+            "radiators",
+            "underfloor",
+            "mixed"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Heat Distribution"
+    },
+    "building_type": {
+      "anyOf": [
+        {
+          "enum": [
+            "detached",
+            "semi_detached",
+            "terraced",
+            "apartment"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Building Type"
+    },
+    "region": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Region"
+    },
+    "rooms": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Rooms"
+    },
+    "occupants": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Occupants"
+    },
+    "fuel_type": {
+      "anyOf": [
+        {
+          "enum": [
+            "gas",
+            "lpg",
+            "oil",
+            "district",
+            "electric"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Fuel Type"
+    },
+    "annual_fuel_kwh": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Annual Fuel Kwh"
+    },
+    "annual_fuel_liters": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Annual Fuel Liters"
+    },
+    "monthly_advance_eur": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Monthly Advance Eur"
+    },
+    "boiler_condensing": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Boiler Condensing"
+    },
+    "dhw_by_boiler": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Dhw By Boiler"
+    },
+    "current_flow_temp_c": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Current Flow Temp C"
+    },
+    "radiator_count": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Radiator Count"
+    },
+    "radiator_size": {
+      "anyOf": [
+        {
+          "enum": [
+            "small",
+            "medium",
+            "large"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Radiator Size"
+    },
+    "valves_to_replace": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Valves To Replace"
+    },
+    "hydraulic_balanced": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Hydraulic Balanced"
+    },
+    "pipe_system": {
+      "anyOf": [
+        {
+          "enum": [
+            "two_pipe",
+            "single_pipe"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Pipe System"
+    },
+    "windows": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Windows"
+    },
+    "roof_insulated": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Roof Insulated"
+    },
+    "walls_insulated": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Walls Insulated"
+    },
+    "listed_building": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Listed Building"
+    },
+    "outdoor_unit_space": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Outdoor Unit Space"
+    },
+    "flat_level_gas_heating": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Flat Level Gas Heating"
+    },
+    "kwh_printed": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Kwh Printed"
+    },
+    "m3": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "M3"
+    },
+    "zustandszahl": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Zustandszahl"
+    },
+    "brennwert": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Brennwert"
+    },
+    "liters": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Liters"
+    },
+    "period_start": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Period Start"
+    },
+    "period_end": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Period End"
+    },
+    "bill_carrier": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Bill Carrier"
+    },
+    "bill_total_eur": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Bill Total Eur"
+    },
+    "certificate_kwh_m2a": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Certificate Kwh M2A"
+    },
+    "certificate_area_m2": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Certificate Area M2"
+    },
+    "notes": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Notes"
+    },
+    "notes_obs": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/NotesObs"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "data_notes": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Data Notes",
+      "type": "array"
+    },
+    "confidence": {
+      "additionalProperties": {
+        "type": "number"
+      },
+      "default": {},
+      "title": "Confidence",
+      "type": "object"
+    },
+    "source": {
+      "additionalProperties": {
+        "enum": [
+          "data",
+          "text",
+          "photo",
+          "bill",
+          "listing",
+          "confirmed",
+          "notes_llm",
+          "rule",
+          "prior",
+          "form"
+        ],
+        "type": "string"
+      },
+      "default": {},
+      "title": "Source",
+      "type": "object"
+    },
+    "evidence": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "default": {},
+      "title": "Evidence",
+      "type": "object"
+    },
+    "missing": {
+      "additionalProperties": {
+        "enum": [
+          "not_visible",
+          "blurry",
+          "ambiguous",
+          "wrong_object"
+        ],
+        "type": "string"
+      },
+      "default": {},
+      "title": "Missing",
+      "type": "object"
+    },
+    "retake_tip": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Retake Tip"
+    },
+    "conflicts": {
+      "default": [],
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Conflicts",
+      "type": "array"
+    }
+  },
+  "title": "House",
+  "type": "object",
+  "$id": "hp-ready/house.schema.json",
+  "x-contract-version": "1-draft"
+}

@@ -25,7 +25,7 @@ ExtraHeat = Literal["wood_stove", "tiled_stove", "heat_pump", "none"]
 VisitType = Literal["remote_quote", "visit_with_parts", "hold"]
 JazBucket = Literal["underfloor", "le55", "55to60", "gt60"]
 Source = Literal["data", "text", "photo", "bill", "listing", "confirmed",
-                 "notes_llm", "rule", "prior"]
+                 "notes_llm", "rule", "prior", "form"]          # form = page-1 form (owner-entered)
 MissingReason = Literal["not_visible", "blurry", "ambiguous", "wrong_object"]
 Mission = Literal["house_text", "exterior", "radiator", "bill", "listing"]
 
@@ -169,6 +169,20 @@ class ListingObs(BaseModel):
 
 MISSION_MODELS = {"house_text": HouseTextObs, "exterior": ExteriorObs,
                   "radiator": RadiatorObs, "bill": BillObs, "listing": ListingObs}
+
+
+class ImageCheck(BaseModel):
+    """Output of image-validation.js (CONTRACT.md). Says whether a photo is usable, never what it means."""
+    expected: Literal["radiator", "bill", "exterior"]
+    usable: bool
+    reason: Literal["ok", "blurry", "too_dark", "too_bright", "too_small", "wrong_object",
+                    "unreadable", "unsupported_type"] = "ok"
+    retake_tip: Optional[str] = None           # one concrete sentence when not usable
+    width_px: Optional[int] = None
+    height_px: Optional[int] = None
+    sharpness: Optional[float] = None          # module-defined (e.g. Laplacian variance); higher = sharper
+    brightness: Optional[float] = None         # mean 0..1
+    radiator: Optional[RadiatorObs] = None     # optional: what the module could tell about a radiator photo
 
 MISSION_TEXTS = {
     "house_text": ("Tell us about your house", "Year, size, heating. Whatever you know."),
@@ -416,3 +430,63 @@ def check_result(h: "House", r: Result) -> list[str]:
     except Exception as e:                      # the checker itself must never break the app
         out.append(f"check_result failed: {e}")
     return out
+
+
+# ---------------------------------------------------------------- JSON contract for the JS modules (CONTRACT.md)
+
+CONTRACT_VERSION = "1-draft"
+CONTRACT_MODELS = {"house": House, "result": Result, "bill": BillObs, "image_check": ImageCheck}
+
+
+def export_contracts(out_dir: str = "contracts") -> list[str]:
+    """Write contracts/<name>.schema.json from the Pydantic models and contracts/examples/*.json
+    from real data (current engine, cached reads). Re-run after any schema change."""
+    import json
+    from pathlib import Path
+    root = Path(__file__).parent / out_dir
+    (root / "examples").mkdir(parents=True, exist_ok=True)
+    written = []
+
+    def dump(path, obj):
+        path.write_text(json.dumps(obj, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        written.append(str(path.relative_to(root.parent)))
+
+    for name, model in CONTRACT_MODELS.items():
+        s = model.model_json_schema()
+        s["$id"] = f"hp-ready/{name}.schema.json"
+        s["x-contract-version"] = CONTRACT_VERSION
+        dump(root / f"{name}.schema.json", s)
+
+    from loader import load_buildings                       # examples from real data, no API calls
+    import engine
+    for bid, h, _ in load_buildings():
+        if bid in ("B-04", "B-05"):
+            r = engine.installer_brief(h, engine.evaluate(h))
+            dump(root / "examples" / f"calc_input_{bid}.json", {"house": h.model_dump(mode="json")})
+            dump(root / "examples" / f"calc_output_{bid}.json", r.model_dump(mode="json"))
+    form = House(building_id="form-example", build_year=1972, living_area_m2=140.0, building_type="terraced",
+                 renovation="partially", heat_distribution="radiators", fuel_type="gas", annual_fuel_kwh=18000.0,
+                 occupants=3, radiator_count=10, radiator_size="large", dhw_by_boiler=True)
+    for f in ("build_year", "living_area_m2", "building_type", "renovation", "heat_distribution", "fuel_type",
+              "annual_fuel_kwh", "occupants", "radiator_count", "radiator_size", "dhw_by_boiler"):
+        form.source[f], form.confidence[f] = "form", 0.9
+    dump(root / "examples" / "calc_input_form.json", {"house": form.model_dump(mode="json")})
+    dump(root / "examples" / "bill_output_demo.json", BillObs(
+        bill_carrier="Erdgas", kwh_printed=18002.0, m3=1651.0, zustandszahl=0.9523, brennwert=11.45,
+        period_start="2025-01-01", period_end="2025-12-31", bill_total_eur=2462.12, monthly_advance_eur=205.0,
+        evidence={"kwh_printed": "Verbrauch 18.002 kWh"}, confidence={"kwh_printed": 0.95}).model_dump(mode="json"))
+    dump(root / "examples" / "image_check_ok.json", ImageCheck(
+        expected="radiator", usable=True, width_px=1568, height_px=1176, sharpness=412.0, brightness=0.52
+    ).model_dump(mode="json"))
+    dump(root / "examples" / "image_check_blurry.json", ImageCheck(
+        expected="radiator", usable=False, reason="blurry", width_px=1568, height_px=1176, sharpness=18.0,
+        brightness=0.47, retake_tip="Hold the phone still and tap the radiator to focus, then take it again."
+    ).model_dump(mode="json"))
+    return written
+
+
+if __name__ == "__main__":
+    import sys
+    if "--export-contracts" in sys.argv:
+        for p in export_contracts():
+            print("wrote", p)

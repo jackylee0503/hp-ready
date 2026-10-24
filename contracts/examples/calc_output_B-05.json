@@ -1,0 +1,225 @@
+{
+  "building_id": "B-05",
+  "best_color": "green",
+  "traffic_light": "green",
+  "verdict_basis": "likely_suitable",
+  "boundary": false,
+  "reason": "Your radiators would need about 50 °C on the coldest days, inside the efficient band up to 55 °C.",
+  "reason_category": null,
+  "p_green": 0.678,
+  "p_yellow": 0.08,
+  "p_red": 0.242,
+  "required_flow_temp_c": {
+    "p10": 41.7,
+    "p50": 49.8,
+    "p90": 74.0
+  },
+  "heat_load_kw": {
+    "p10": 6.69,
+    "p50": 8.83,
+    "p90": 10.87
+  },
+  "heat_load_bill_kw": {
+    "p10": 10.6,
+    "p50": 11.13,
+    "p90": 12.37
+  },
+  "specific_load_w_m2": 70.6,
+  "jaz_bucket": "le55",
+  "path_to_yellow": [
+    "No change needed for 55 °C: the radiators give 12.0 kW, about 9.4 kW is needed."
+  ],
+  "cost_now_eur": 2970.0,
+  "cost_hp_eur": 1765.0,
+  "saving_eur": 1205.0,
+  "cost_note": null,
+  "contradictions": [
+    {
+      "what": "Few m² per room for the number of rooms",
+      "sources": [
+        "rooms",
+        "floor area"
+      ],
+      "trusted": "documented area (verdict)",
+      "why": "14 rooms in 125 m² is 8.9 m² per room: the documented area may not include all heated rooms (basement, attic?); the bill points the same way, so the MC widens the area up to 220 m²"
+    },
+    {
+      "what": "Bill says 11.1 kW, area and age say 6.3 kW (+76%)",
+      "sources": [
+        "consumption",
+        "area × age"
+      ],
+      "trusted": "area × age",
+      "why": "many rooms for the area: heated rooms may be missing from the documented area"
+    },
+    {
+      "what": "Hot water via the boiler, but there is solar thermal",
+      "sources": [
+        "data",
+        "notes"
+      ],
+      "trusted": "both",
+      "why": "hot-water share halved (our assumption); notes only say a solar system is present"
+    }
+  ],
+  "site_flags": [],
+  "open_checks": [
+    {
+      "item": "Is all heated area included in the documented size (basement, attic)?",
+      "why": "Few m² per room for the number of rooms"
+    },
+    {
+      "item": "Your bill and your house size disagree: is all heated area included, and is the yearly use right?",
+      "why": "Bill says 11.1 kW, area and age say 6.3 kW (+76%)"
+    },
+    {
+      "item": "Radiator types and sizes are not documented: a technician checks them room by room.",
+      "why": "radiator size decides the water temperature"
+    },
+    {
+      "item": "Heating pipe system unclear. A technician should check whether this is a single-pipe system, because that can require a higher flow temperature.",
+      "why": "organiser guidance"
+    },
+    {
+      "item": "Exact heating load, electrical capacity and where the outdoor unit can go.",
+      "why": "always checked on site"
+    }
+  ],
+  "hints": [
+    "The underfloor circuit is fine at about 35 °C; the radiators set the temperature.",
+    "Myth: you don't need underfloor heating or a full renovation for a heat pump."
+  ],
+  "next_question": "How big is your biggest radiator? A photo from the side, pipes in view, tells us.",
+  "trace": [
+    {
+      "label": "Fuel per year",
+      "value": "27,000 kWh",
+      "assumption": "stated yearly use"
+    },
+    {
+      "label": "Useful heat Q_heat = fuel × η",
+      "value": "27,000 × 0.88 = 23,760 kWh",
+      "assumption": "organiser default η 0.88 (old boiler loses ~12 %)"
+    },
+    {
+      "label": "Hot water Q_dhw",
+      "value": "1,500 kWh",
+      "assumption": "1000 kWh × 3 people (organiser) × 0.5 solar thermal (our assumption)"
+    },
+    {
+      "label": "Space heat Q_space = Q_heat − Q_dhw",
+      "value": "22,260 kWh",
+      "assumption": null
+    },
+    {
+      "label": "Heated area",
+      "value": "125 m²",
+      "assumption": "living area as documented"
+    },
+    {
+      "label": "W/m² (age × renovation)",
+      "value": "50 W/m²",
+      "assumption": "built 2006, unrenovated / unknown (notes say no additional insulation); organiser band built 2002+: 40-60; first estimate, not a DIN EN 12831 calculation"
+    },
+    {
+      "label": "Heating load (point) = k × W/m² × area",
+      "value": "1.01 × 50 W/m² × 125 m² = 6.3 kW",
+      "assumption": "k is the only calibrated parameter (3 dev buildings)"
+    },
+    {
+      "label": "Heating load range (MC p10-p50-p90)",
+      "value": "6.7 – 8.8 – 10.9 kW",
+      "assumption": "N=500, seed 0: W/m² × U(0.8, 1.2), area up to × 1.76"
+    },
+    {
+      "label": "Specific load",
+      "value": "71 W/m²",
+      "assumption": "hint above 75 W/m² (organiser)"
+    },
+    {
+      "label": "Bill-based load = Q_space / full-load hours",
+      "value": "10.6 – 11.1 – 12.4 kW",
+      "assumption": "2,100 / 2,000 / 1,800 h (organiser); cross-check only, the verdict uses area × age"
+    },
+    {
+      "label": "Both methods, combined range",
+      "value": "6.7 – 12.4 kW",
+      "assumption": "shown because both exist (organiser); verdict uses area × age"
+    },
+    {
+      "label": "Radiator output ΣΦ_n (75/65/20 °C)",
+      "value": "8 × 1.5 kW = 12.0 kW",
+      "assumption": "count stated; size unknown → medium (MC 25/50/25 small/medium/large) (Kermi/Buderus EN 442)"
+    },
+    {
+      "label": "Radiator share of the load (mixed)",
+      "value": "0.57",
+      "assumption": "8 radiators / 14 rooms; underfloor circuit fine at ~35 °C"
+    },
+    {
+      "label": "Required flow temperature (point)",
+      "value": "20 + 19.8 + 4 = 43.8 °C",
+      "assumption": "ΔT = 50 × (3.6 / 12.0)^(1/1.3), spread 8 K"
+    },
+    {
+      "label": "Flow temperature range (MC p10-p50-p90)",
+      "value": "41.7 – 49.8 – 74.0 °C",
+      "assumption": "G 0.68 / Y 0.08 / R 0.24; verdict = colour of p50"
+    },
+    {
+      "label": "JAZ (seasonal efficiency)",
+      "value": "3.5",
+      "assumption": "radiators ≤55 °C: 3.5"
+    },
+    {
+      "label": "Cost today",
+      "value": "€2,970/yr",
+      "assumption": "27,000 kWh × 0.11 €/kWh (challenge price)"
+    },
+    {
+      "label": "Cost with heat pump",
+      "value": "€1,765/yr",
+      "assumption": "23,760 kWh / JAZ 3.5 × 0.26 €/kWh"
+    },
+    {
+      "label": "Saving",
+      "value": "€1,205/yr",
+      "assumption": "running cost only; installation and subsidies come with the quote"
+    }
+  ],
+  "confidence": 0.48,
+  "lead_score": 0.364,
+  "visit_type": "visit_with_parts",
+  "parts": {
+    "radiators_to_swap": [
+      0,
+      0,
+      0
+    ],
+    "radiators_note": "current size unknown, assumed medium",
+    "valves": null,
+    "balancing": "needed"
+  },
+  "installer_checklist": [
+    "Check on site: Few m² per room for the number of rooms (documented area (verdict))",
+    "Check on site: Bill says 11.1 kW, area and age say 6.3 kW (+76%) (area × age)",
+    "Check on site: Hot water via the boiler, but there is solar thermal (both)",
+    "Pipe system unknown: check for a single-pipe loop (one pipe along the skirting, bypass at H-blocks)",
+    "Radiator types/sizes not documented: measure room by room",
+    "presettable valves, balancing to check",
+    "Exact heating load (DIN EN 12831) and room-by-room radiator sizing",
+    "Electrical capacity and meter cabinet",
+    "Hydraulics and hydraulic balancing",
+    "Outdoor-unit position, sound distance and permits"
+  ],
+  "next_photo": "Your biggest radiator, from the side, pipes in view.",
+  "next_step": {
+    "kind": "quote",
+    "label": "Get a quote",
+    "detail": "an installer will want a short look first"
+  },
+  "options": [],
+  "radiators": null,
+  "flags": [],
+  "always_checks": []
+}
