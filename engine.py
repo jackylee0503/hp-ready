@@ -631,6 +631,9 @@ def _physics(h: House, p: Params, n: int, seed: int) -> Result:
         if abs(diff) > 0.40:
             if diff < 0 and o and o.extra_source_all_winter:
                 cause = "an extra heat source runs all winter, so the bill is too low"
+            elif diff > 0 and h.renovation in ("fully", "partially"):
+                cause = (f"the house is described as {h.renovation} renovated, but it uses as much as a much less "
+                         "insulated house: is the renovation complete, or is the yearly use right?")
             elif diff < 0 and s["unused"]:
                 cause = "part of the house is unused, so the documented area is too high"
             elif diff > 0 and h.rooms and h.living_area_m2 and h.living_area_m2 / h.rooms < 10:
@@ -722,6 +725,11 @@ def _physics(h: House, p: Params, n: int, seed: int) -> Result:
         color, capped_by = "yellow", capped_by or "site"
     if capped_by:                                # a capped green cannot be green: move its probability to yellow
         r.p_yellow, r.p_green = round(r.p_yellow + r.p_green, 3), 0.0
+    # Red is earned (Invariant 6): radiators would need >60 °C, but we know neither how many there are (count only
+    # estimated from rooms or area) nor how big they are. That is "can't tell yet", not an obstacle.
+    if (color == "red" and not missing and not flips and mc is not None and s["dist_calc"] != "underfloor"
+            and s["count_src"] != "stated" and h.radiator_size is None):
+        missing = missing + ["radiator_count"]
     unclear = bool(missing) or flips or mc is None
     if unclear:
         r.best_color, r.traffic_light, r.verdict_basis = "yellow", "unclear", "cannot_tell_yet"
@@ -863,7 +871,11 @@ def _open_checks(h, s, r, missing, flips) -> list[OpenCheck]:
         out.append(OpenCheck(item="Was the house insulated or were windows replaced since it was built?",
                              why="this decides the colour"))
     for c in r.contradictions:
-        if c.sources and c.sources[0] == "consumption":
+        if c.sources and c.sources[0] == "consumption" and "renovated" in (c.why or ""):
+            out.append(OpenCheck(item=f"You said the house is {h.renovation} renovated, but your bill is high for that: "
+                                      "was everything done (walls, roof, windows), and is the yearly use right?",
+                                 why=c.what))
+        elif c.sources and c.sources[0] == "consumption":
             out.append(OpenCheck(item="Your bill and your house size disagree: is all heated area included, and is the yearly use right?",
                                  why=c.what))
         elif "per room" in c.what:

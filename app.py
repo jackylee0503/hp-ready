@@ -1460,7 +1460,7 @@ NAMES = {"detached": "detached", "semi_detached": "semi-detached", "terraced": "
          "radiators": "radiators", "underfloor": "underfloor", "mixed": "both",
          "gas": "gas", "lpg": "LPG", "oil": "oil", "district": "district heating", "electric": "electric"}
 FORM = [  # (field, label, options | NUM (min, max, step, unit), value -> text)
-    ("build_year", "Year built", ("num", 1800, 2026, 1, ""), "{}"),
+    ("build_year", "Year built", ("num", 1000, 2026, 1, ""), "{}"),
     ("living_area_m2", "Living area", ("num", 10, 2000, 5, "m²"), "{:,} m²"),
     ("building_type", "Building type", ["detached", "semi_detached", "terraced", "apartment"], NAMES),
     ("renovation", "Insulation / renovation", ["unrenovated", "partially", "fully"], NAMES),

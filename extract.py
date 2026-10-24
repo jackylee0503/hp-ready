@@ -27,7 +27,8 @@ SYSTEM = (
 HINT = {
     "house_text": (
         "Mission: a homeowner's description of their house. yearly_use_value and yearly_use_unit exactly as written "
-        "(e.g. 18000 and 'kWh', 2500 and 'l', 150 and 'EUR/month'). radiator_size 'large' only if the words say big or "
+        "(e.g. 18000 and 'kWh', 2500 and 'l', 150 and 'EUR/month'); a monthly advance payment (Abschlag, 'we pay X € a "
+        "month') is a yearly use too: its number with unit 'EUR/month'. radiator_size 'large' only if the words say big or "
         "large, confidence ≤ 0.5, and copy the words into radiator_size_words. renovation 'partially' if some insulation "
         "or window work is named, 'unrenovated' only if stated. Never guess a year from words like 'old'. "
         "Also fill notes (NotesObs) from the same text."),
@@ -85,8 +86,13 @@ def keyword_house(text: str) -> HouseTextObs:
         if v is not None:
             setattr(o, f, v)
             o.evidence[f], o.confidence[f] = quote, 0.5
-    m = (re.search(r"(?:baujahr|built|from|von|aus|construction)\D{0,15}?\b(1[89]\d\d|20[0-2]\d)\b", low)
+    m = (re.search(r"(?:baujahr|built|from|von|aus|construction)\D{0,15}?\b(1[2-9]\d\d|20[0-2]\d)\b", low)
          or re.search(r"\b(1[89]\d\d|20[0-2]\d)\b(?!\s*(?:l|kwh|m|qm|€|eur|liter))", low))
+    if not m:                          # "bj 93", "Baujahr '74": two digits only right after the year word
+        m2 = re.search(r"\b(?:bj\.?|baujahr)\s*'?(\d\d)\b", low)
+        if m2:
+            yy = int(m2.group(1))
+            put("build_year", (2000 if yy <= 26 else 1900) + yy, m2.group(0))
     put("build_year", int(m.group(1)) if m else None, m and m.group(0))
     m = re.search(r"(\d[\d.,]*)\s*(m²|m2|qm|sqm|square met|quadratmeter)", low)
     v = _num(m.group(1)) if m else None
@@ -99,6 +105,12 @@ def keyword_house(text: str) -> HouseTextObs:
             v, unit = v * 1000, "kwh"
         put("yearly_use_value", v, m.group(0))
         o.yearly_use_unit = "kWh" if unit == "kwh" else "l"
+    if o.yearly_use_value is None:     # "180€ abschlag im monat", "€150 a month", "150 EUR monatlich"
+        m = (re.search(r"(\d[\d.,]*)\s*(?:€|eur\b|euro)[^.\n]{0,25}?(abschlag|monat|month|mtl|vorauszahl|advance)", low)
+             or re.search(r"(?:€|eur\b|euro)\s*(\d[\d.,]*)[^.\n]{0,25}?(abschlag|monat|month|mtl|vorauszahl|advance)", low))
+        if m:
+            put("yearly_use_value", _num(m.group(1)), m.group(0))
+            o.yearly_use_unit = "EUR/month"
     m = re.search(r"(\d+)\s*(radiators|heizkörper)", low)
     put("radiator_count", int(m.group(1)) if m else None, m and m.group(0))
     m = (re.search(r"(\d+)\s*(?:people|persons|personen|leute)", low) or re.search(r"(\d+|\w+) of us", low)
@@ -185,8 +197,13 @@ def obs_to_house(kind: str, obs) -> House:
             put(f, d[f])
         u, v = (obs.yearly_use_unit or "").lower().replace("³", "3"), obs.yearly_use_value
         if v is not None:
-            monthly = ("eur" in u or "€" in u) and bool(re.search(r"month|monat|mtl", u))
-            field = ("annual_fuel_kwh" if "kwh" in u else "monthly_advance_eur" if monthly
+            euro = "eur" in u or "€" in u
+            said = f"{u} {(obs.evidence or {}).get('yearly_use_value', '')}".lower()
+            per_year = euro and bool(re.search(r"year|jahr|jährl|annual|p\.?\s?a\b|/a\b", u))
+            monthly = euro and not per_year and bool(re.search(r"month|monat|mtl|abschlag|advance|vorauszahl", said))
+            if per_year:                       # "we pay 2,160 € a year" → the engine works with the monthly advance
+                v = v / 12
+            field = ("annual_fuel_kwh" if "kwh" in u else "monthly_advance_eur" if (monthly or per_year)
                      else "m3" if "m3" in u else "annual_fuel_liters" if u.startswith("l") else None)
             if field:
                 put(field, v, "yearly_use_value")
