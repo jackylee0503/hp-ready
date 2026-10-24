@@ -1411,7 +1411,8 @@ def tab_evaluation():
 
 
 CHIPS = [("build_year", "{}"), ("living_area_m2", "{:.0f} m²"), ("building_type", "{}"), ("renovation", "{} renovated"),
-         ("heat_distribution", "{}"), ("fuel_type", "{}"), ("annual_fuel_kwh", "{:,.0f} kWh"), ("occupants", "{} people"),
+         ("heat_distribution", "{}"), ("fuel_type", "{}"), ("annual_fuel_kwh", "{:,.0f} kWh"), ("annual_fuel_liters", "{:,.0f} litres"),
+         ("monthly_advance_eur", "€{:,.0f} a month"), ("occupants", "{} people"),
          ("radiator_count", "{} radiators"), ("radiator_size", "{} radiators"), ("pipe_system", "{}"),
          ("kwh_printed", "{:,.0f} kWh on the bill"), ("certificate_kwh_m2a", "{:.0f} kWh/m²a"), ("outdoor_unit_space", "outdoor spot: {}")]
 
@@ -1555,6 +1556,8 @@ def value_text(h: House, f: str, v=None, src: str | None = None) -> str:
         return f"{v:,.0f} kWh"
     if f == "annual_fuel_liters":
         return f"{v:,.0f} litres"
+    if f == "monthly_advance_eur":
+        return f"€{v:,.0f} a month"
     if f == "living_area_m2":
         return f"{v:.0f} m²"
     if isinstance(v, str):
@@ -2122,7 +2125,8 @@ def tab_homeowner():
     with right:
         h = home_house()                              # reads in this run happened after the first merge
         seen, out = set(), []
-        rows = [(f, lb) for f, lb, *_ in FORM] + [("pipe_system", "Pipes"), ("kwh_printed", "Use on the bill")]
+        rows = [(f, lb) for f, lb, *_ in FORM] + [("monthly_advance_eur", "Monthly payment"), ("pipe_system", "Pipes"),
+                                                  ("kwh_printed", "Use on the bill")]
         ask = needs_answer(h)
         for f, label in rows:
             v = getattr(h, f)
