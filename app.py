@@ -111,6 +111,28 @@ st.markdown("""<style>
 .stApp [class*="st-key-stdchecks_"] [data-testid="stCheckbox"]{border-top:1px solid var(--line-soft);padding:10px 0}
 .stApp [class*="st-key-stdchecks_"] [data-testid="stCheckbox"] p{font-size:14px;color:var(--ink)}
 /* Material icons (Streamlit 1.66: span data-testid=stIconMaterial or st*Icon*, aria-hidden, translate=no) keep their font */
+/* Wizard progress: 4 bars with step names, current one bold */
+.steps{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin:4px 0 16px}
+.steps .bar{height:5px;border-radius:3px;background:#D5DBE1}
+.steps .on .bar{background:#14213D}
+.steps span{display:block;font-size:12px;color:var(--muted);margin-top:6px;line-height:1.25}
+.steps .cur span{color:var(--ink);font-weight:700}
+/* Sidebar "What we know so far": one card, rows inside, readable source pills */
+.know{background:#fff;border:1px solid #E2E6EA;border-radius:20px;padding:18px 20px;margin-bottom:12px}
+.know-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;
+          border-top:1px solid var(--line-soft);font-size:15px;color:var(--ink)}
+.know-row .need{color:#7A5205;font-weight:700}
+.know-note{font-size:12px;color:var(--muted);margin-top:8px}
+.src{font-size:12px;font-weight:600;color:#15233B;background:#E3E8EF;border:1px solid #C9D2DD;border-radius:999px;
+     padding:3px 10px;white-space:nowrap}
+/* Page 4: the conflict question box stands out */
+.stApp [class*="st-key-conflictbox"]{background:#FFF8E6;border-color:#E6B84A !important}
+/* Uploader: hide Streamlit's "Limit 200MB per file" line (homeowner noise) */
+[data-testid="stFileUploaderDropzoneInstructions"]{display:none}
+/* Evaluation KPI row: 4 across on desktop, 2×2 on tablets, 1 on phones */
+.kpi-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}
+@media (max-width:1100px){.kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:560px){.kpi-grid{grid-template-columns:minmax(0,1fr)}}
 /* Answer card call to action: an in-page link to the request form, styled as a button */
 a.cta{display:block;text-align:center;padding:10px 16px;border-radius:8px;background:#14213D;color:#fff !important;
       font-weight:600;text-decoration:none !important;margin:8px 0 4px}
@@ -450,8 +472,18 @@ def pill(color: str, text: str, filled: bool = False, size: str = "12px") -> str
             f'font-weight:600;white-space:nowrap;{sty}">{text}</span>')
 
 
-def stacked_bar(pg: float, py: float, pr: float, width: str = "150px", height: int = 8) -> str:
-    seg = "".join(f'<span style="width:{max(p or 0, 0) * 100:.1f}%;background:var(--bar-{c});display:block"></span>'
+def stacked_bar(pg: float, py: float, pr: float, width: str = "150px", height: int = 8, labels: bool = False) -> str:
+    """G/Y/R bar. labels=True: a letter (and % when it fits) inside each segment, so colour isn't the only cue."""
+    ink = {"g": "#fff", "y": "#3A2802", "r": "#fff"}
+
+    def lab(c, p):
+        if not labels or p < 0.08:
+            return ""
+        txt = f"{c.upper()} {round(p * 100)}" if p >= 0.22 else c.upper()
+        return (f'<span style="font-size:10px;font-weight:700;line-height:{height}px;color:{ink[c]};'
+                f'white-space:nowrap;overflow:hidden">{txt}</span>')
+    seg = "".join(f'<span style="width:{max(p or 0, 0) * 100:.1f}%;background:var(--bar-{c});display:flex;'
+                  f'justify-content:center;overflow:hidden">{lab(c, p or 0)}</span>'
                   for c, p in (("g", pg), ("y", py), ("r", pr)))
     return (f'<span role="img" aria-label="green {pg or 0:.0%}, yellow {py or 0:.0%}, red {pr or 0:.0%}" '
             f'style="display:flex;height:{height}px;border-radius:{height / 2:g}px;overflow:hidden;width:{width};'
@@ -888,13 +920,12 @@ def gyr_text(r: Result) -> str:
 
 
 def red_risk_cell(r: Result) -> str:
-    """Red-risk column: filled red pill when the verdict is red, else R % (bold red at ≥ 30 %, muted below)."""
-    if r.best_color == "red":
-        return pill("red", f"Red · {pct(r.p_red)}", filled=True)
-    if r.p_red >= RED_RISK:
-        return (f'<span class="num" style="font-weight:700;color:var(--r-tx)">{pct(r.p_red)}</span>'
-                '<span class="ev-sub">real red risk</span>')
-    return f'<span class="num" style="color:var(--muted)">{pct(r.p_red)}</span>'
+    """Red-risk column, one style for every row: R % as text (bold red at ≥ 30 % or a red verdict, muted below)
+    with a short label under it."""
+    sub = "verdict red" if r.best_color == "red" else "real red risk" if r.p_red >= RED_RISK else "low"
+    strong = r.best_color == "red" or r.p_red >= RED_RISK
+    sty = "font-weight:700;color:var(--r-tx)" if strong else "color:var(--muted)"
+    return f'<span class="num" style="{sty}">{pct(r.p_red)}</span><span class="ev-sub">{sub}</span>'
 
 
 def red_calls_card(res) -> str:
@@ -948,8 +979,7 @@ def eval_kpis(B, dev, res=()) -> str:
         name = info.name if info is not None and info.name else "Calculation module"
         c3 = kpi_card("Model", esc(name), reported or '<div style="font-size:13px;color:var(--muted)">No metrics reported '
                       'by the model.</div>', aside=esc(info.kind) if info is not None else "")
-        return ('<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px">'
-                f'{c1}{red}{c2}{c3}</div>')
+        return f'<div class="kpi-grid">{c1}{red}{c2}{c3}</div>'
     try:
         import calibrate
         loo = calibrate.leave_one_out(B)
@@ -976,8 +1006,7 @@ def eval_kpis(B, dev, res=()) -> str:
     else:
         c2 = kpi_card("Heat-load error · leave-one-out", "–")
         c3 = kpi_card("Calibration", f"k = {k:.2f}", reported, aside="1 tuned number")
-    return ('<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px">'
-            f'{c1}{red}{c2}{c3}</div>')
+    return f'<div class="kpi-grid">{c1}{red}{c2}{c3}</div>'
 
 
 def eval_table(res, sel: str) -> str:
@@ -985,7 +1014,7 @@ def eval_table(res, sel: str) -> str:
                      f'border-radius:2px;background:var(--bar-{c[0]});display:block"></span>{c.capitalize()}</span>'
                      for c in ("green", "yellow", "red"))
     inst = show_installer()                      # Next step / Lead score are installer columns (out of the MVP)
-    heads = [("Building", ""), ("Verdict", ""), ("Green · Yellow · Red", "width:190px"), ("Red risk", ""),
+    heads = [("Building", ""), ("Verdict", ""), ("Green · Yellow · Red", "width:170px"), ("Red risk", ""),
              ("Flow temp", ""), ("Heat load", ""), ("Flags", "text-align:right")]
     if inst:
         heads += [("Next step", ""), ("Lead score", "width:120px")]
@@ -1018,7 +1047,7 @@ def eval_table(res, sel: str) -> str:
         row = (
             f'<tr{tr}><td class="ev-td"{first}><b>{esc(bid)}</b>{tracer_chip(bid)}<span class="ev-sub">{"dev" if ref else "held-out"}</span></td>'
             f'<td class="ev-td">{pill(r.best_color, r.best_color.capitalize(), filled=r.best_color == "red")} {refmark}</td>'
-            f'<td class="ev-td">{stacked_bar(r.p_green, r.p_yellow, r.p_red)}<span class="ev-sub num">{gyr_text(r)}</span>{close}</td>'
+            f'<td class="ev-td">{stacked_bar(r.p_green, r.p_yellow, r.p_red, width="150px", height=16, labels=True)}{close}</td>'
             f'<td class="ev-td">{red_risk_cell(r)}</td>'
             f'<td class="ev-td num">{t(fl.p50)}<span class="ev-sub">{flow_span(fl.p10, fl.p90)}</span></td>'
             f'<td class="ev-td num">{kw(load)}<span class="ev-sub">{load_sub}</span></td>'
@@ -1031,10 +1060,10 @@ def eval_table(res, sel: str) -> str:
             '<div style="display:flex;justify-content:space-between;align-items:center;padding:18px 20px 12px;'
             'flex-wrap:wrap;gap:8px"><h2 style="margin:0;font-size:16px;font-weight:600;color:var(--ink)">All buildings</h2>'
             f'<div style="display:flex;gap:14px;font-size:12px;color:var(--muted);align-items:center">{legend}</div></div>'
-            '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:900px;margin:0;'
+            '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:720px;margin:0;'
             f'border:none"><thead><tr>{th}</tr></thead><tbody>{"".join(body)}</tbody></table></div>'
             '<div style="padding:12px 20px;font-size:12px;color:var(--muted);border-top:1px solid var(--line-soft)">'
-            f'Red risk = chance of red; bold red from {pct(RED_RISK)}. Pick a building below the table to open it.'
+            f'Red risk = chance of red; bold red from {pct(RED_RISK)}. Labels in the bar: G green, Y yellow, R red (%). Use “Open” above the table for a building’s details.'
             '</div></div>')
 
 
@@ -1187,7 +1216,7 @@ def eval_detail(bid: str, h: House, ref: dict | None, r: Result) -> str:
         f'<div><div style="font-size:24px;font-weight:700;line-height:1.1;color:var(--ink)">{esc(title)}</div>'
         f'<div style="font-size:13px;color:var(--muted)">{esc(word)} · {pct(p_best)} {of_what}</div></div></div>'
         '<div style="display:flex;flex-direction:column;gap:6px">'
-        f'{stacked_bar(r.p_green, r.p_yellow, r.p_red, width="100%", height=10)}'
+        f'{stacked_bar(r.p_green, r.p_yellow, r.p_red, width="100%", height=16, labels=True)}'
         f'<div class="num" style="font-size:13px;color:var(--ink)">{gyr_text(r)}</div></div>'
         '<div style="display:flex;flex-direction:column;gap:10px">'
         '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">'
@@ -1377,21 +1406,25 @@ def tab_evaluation():
     compare_section()
 
     ids = [b for b, *_ in res]
-    table_slot = st.container()
     default = "B-05" if "B-05" in ids else ids[-1]
-    try:
-        sel = st.segmented_control("Open a building", ids, default=default, key="eval_sel", required=True)
-    except TypeError:
-        sel = st.segmented_control("Open a building", ids, default=default, key="eval_sel")
-    except AttributeError:
-        sel = st.radio("Open a building", ids, index=ids.index(default), horizontal=True, key="eval_sel")
+    # UI review: the picker sits right above the table, labelled "Open:" (robust; HTML table rows can't be clicked)
+    with st.container(horizontal=True, vertical_alignment="center", key="eval_open"):
+        st.markdown("**Open:**", width="content")
+        try:
+            sel = st.segmented_control("Open a building", ids, default=default, key="eval_sel", required=True,
+                                       label_visibility="collapsed")
+        except TypeError:
+            sel = st.segmented_control("Open a building", ids, default=default, key="eval_sel",
+                                       label_visibility="collapsed")
+        except AttributeError:
+            sel = st.radio("Open a building", ids, index=ids.index(default), horizontal=True, key="eval_sel",
+                           label_visibility="collapsed")
     sel = sel or st.session_state.get("eval_last", default)
     st.session_state["eval_last"] = sel
-    with table_slot:
-        st.html(eval_table(res, sel))
-        for line in fallback_lines(res) + contract_lines(res):
-            st.caption(line)
-        baseline_section(res)
+    st.html(eval_table(res, sel))
+    for line in fallback_lines(res) + contract_lines(res):
+        st.caption(line)
+    baseline_section(res)
 
     bid, h, ref, r = next(x for x in res if x[0] == sel)
     if r is None:
@@ -1403,7 +1436,7 @@ def tab_evaluation():
 CHIPS = [("build_year", "{}"), ("living_area_m2", "{:.0f} m²"), ("building_type", "{}"), ("renovation", "{} renovated"),
          ("heat_distribution", "{}"), ("fuel_type", "{}"), ("annual_fuel_kwh", "{:,.0f} kWh"), ("occupants", "{} people"),
          ("radiator_count", "{} radiators"), ("radiator_size", "{} radiators"), ("pipe_system", "{}"),
-         ("kwh_printed", "{:,.0f} kWh printed"), ("certificate_kwh_m2a", "{:.0f} kWh/m²a"), ("outdoor_unit_space", "outdoor spot: {}")]
+         ("kwh_printed", "{:,.0f} kWh on the bill"), ("certificate_kwh_m2a", "{:.0f} kWh/m²a"), ("outdoor_unit_space", "outdoor spot: {}")]
 
 
 def chips(h: House) -> str:
@@ -1701,7 +1734,7 @@ def form_page(h: House):
             tag = "form"
         else:                                    # filled (or overruled) by the bill, photo, text or a conflict answer
             tag = f"{src_label(src)} · {value_text(h, f)}"
-        html(f'<span class="pill">{esc(tag)}</span>', c3)
+        html(f'<span class="src">{esc(tag)}</span>', c3)
 
 
 def home_house() -> House:
@@ -1769,6 +1802,12 @@ def needs_answer(h: House) -> set[str]:
 # How an input was read (muted line under "We read"). Fallbacks never call the LLM by themselves (Invariant 1).
 READER = {"module": "Read by the module", "cache": "Read from the demo cache",
           "llm": "Read by the AI fallback (HP_LLM_FALLBACK=1)", "failed": "Couldn't read"}
+
+
+EVIDENCE_NAMES = {"kwh_printed": "Use on the bill", "m3": "Gas volume", "zustandszahl": "Zustandszahl",
+                  "brennwert": "Brennwert", "period_start": "Billing period", "period_end": "Billing period",
+                  "bill_carrier": "Bill type", "bill_total_eur": "Bill total", "monthly_advance_eur": "Monthly payment",
+                  "liters": "Litres on the bill", "certificate_kwh_m2a": "Energy certificate"}
 
 
 def do_read(slot: str, data: bytes, mime: str, mission: str):
@@ -1841,12 +1880,16 @@ def show_read(slot: str):
     if slot == "text" and ss.get("text_unused"):
         html('<p style="font-size:12px;color:var(--muted);margin:4px 0 0">Not used (already set): '
              + esc("; ".join(ss.text_unused)) + "</p>")
-    if how in READER and slot != "text":
-        st.caption(READER[how])
+    # Which reader ran (module / demo cache / AI fallback) is internal: not shown to the homeowner (UI review).
     if h.evidence:
         with st.expander("Why?"):
+            shown = set()
             for f, q in h.evidence.items():
-                st.caption(f"{f.replace('_', ' ')}: {q}")
+                lab = EVIDENCE_NAMES.get(f) or human_field(f)
+                if (lab, q) in shown or not lab:
+                    continue
+                shown.add((lab, q))
+                st.caption(f"{lab}: {q}")
     if h.retake_tip or h.missing:
         (st.info if found else st.warning)(h.retake_tip or "Some of it was unreadable. One more photo?")
 
@@ -1977,6 +2020,39 @@ def text_page(h: House) -> int:
     return open_n
 
 
+@st.cache_data(show_spinner=False)
+def bill_example_png() -> bytes | None:
+    """The demo bill photo straightened and cropped to its upper half (a clean 'like this' thumbnail, no grey table).
+    The photo is the page rotated −3.5° (assets/demo/make_demo_assets.py); None → show the photo as is."""
+    try:
+        import io
+
+        from PIL import Image, ImageOps
+        im = Image.open(ROOT / DEMO_BILL).convert("RGB")
+        cx, cy = im.width * 391 / 750, im.height * 501.5 / 1007
+        sx, sy = im.width / 750, im.height / 1007
+        im = im.rotate(3.5, center=(cx, cy), resample=Image.BICUBIC, fillcolor="white")
+        im = im.crop((int(cx - 300 * sx), int(cy - 386 * sy), int(cx + 300 * sx), int(cy + 35 * sy)))
+        im = ImageOps.autocontrast(im, cutoff=(0, 8)).point(lambda v: 255 if v > 215 else v)
+        im = ImageOps.expand(im, border=14, fill="white")
+        buf = io.BytesIO()
+        im.save(buf, format="PNG")
+        return buf.getvalue()
+    except Exception:
+        return None
+
+
+STEPS = ["Your house", "Radiator", "Bill", "Check & answer"]
+
+
+def progress_html(step: int) -> str:
+    """4 bars with the step names under them; the current step bold."""
+    cells = "".join(
+        f'<div class="step{" on" if i <= step else ""}{" cur" if i == step else ""}"><div class="bar"></div>'
+        f'<span>{i}. {esc(name)}</span></div>' for i, name in enumerate(STEPS, 1))
+    return f'<div class="steps" role="list" aria-label="Step {step} of 4: {esc(STEPS[step - 1])}">{cells}</div>'
+
+
 def tab_homeowner():
     ss = st.session_state
     ss.setdefault("step", 1)
@@ -1989,8 +2065,7 @@ def tab_homeowner():
     left, right = st.columns([3, 2])
     with left:
         if ss.step <= 4:
-            html('<div class="bars">' + "".join(f'<div class="{"on" if i <= ss.step else ""}"></div>' for i in range(1, 5))
-                 + f'</div><span class="muted">{ss.step} of 4</span>')
+            html(progress_html(ss.step))
         act = None
         if ss.step == 1:
             form_page(h)
@@ -2003,8 +2078,8 @@ def tab_homeowner():
                 st.image(str(ROOT / "data/pipe_photos/05_zweirohr-vermutet_kompakt.jpeg"), width=200)
                 st.caption("Like this: the whole radiator from the side, the valve and both pipes in view.")
             with up_col:
-                read_upload(st.file_uploader("Radiator photo", type=["jpg", "jpeg", "png", "webp"], key="up_rad"),
-                            "radiator", "radiator")
+                read_upload(st.file_uploader("Radiator photo", type=["jpg", "jpeg", "png", "webp"], key="up_rad",
+                                             label_visibility="collapsed"), "radiator", "radiator")
             photos = sorted(p.name for p in (ROOT / "data/pipe_photos").glob("*.jp*g"))
             if ss.get("rad_example") not in ["–"] + photos:   # seed once (widget state is dropped off-page)
                 ss["rad_example"] = ss.get("tag_radiator_ex") if ss.get("tag_radiator_ex") in photos else "–"
@@ -2020,17 +2095,18 @@ def tab_homeowner():
             st.markdown("## Bill or listing?")
             st.caption("Optional. Photo, PDF or screenshot.")
             up_col, ex_col = st.columns([3, 2])
-            with ex_col:                                 # what a usable bill looks like
-                st.image(str(ROOT / DEMO_BILL), width=200)
+            with ex_col:                                 # what a usable bill looks like (shown once, straightened)
+                ex_img = bill_example_png()
+                st.image(ex_img if ex_img else str(ROOT / DEMO_BILL), width=220)
                 st.caption("Like this: the page with your yearly use in kWh or m³. You can cover your name and address.")
+                if ss.get("tag_doc_demo") and ss.reads.get("doc"):
+                    html('<p class="ok">✓ Attached: the demo bill</p>')
             with up_col:
                 read_upload(st.file_uploader("Bill or listing", type=["jpg", "jpeg", "png", "webp", "pdf"],
-                                             key="up_doc"), "doc", "bill")
-            if st.button("Use the demo bill photo"):
-                ss["tag_doc_demo"] = DEMO_BILL
-                do_read("doc", (ROOT / DEMO_BILL).read_bytes(), "image/jpeg", "bill")
-            if ss.get("tag_doc_demo") and ss.reads.get("doc"):
-                st.image(str(ROOT / (ss["tag_doc_demo"] if ss["tag_doc_demo"] != "demo" else DEMO_BILL)), width=320)
+                                             key="up_doc", label_visibility="collapsed"), "doc", "bill")
+                if st.button("Use the demo bill photo"):
+                    ss["tag_doc_demo"] = DEMO_BILL
+                    do_read("doc", (ROOT / DEMO_BILL).read_bytes(), "image/jpeg", "bill")
             show_read("doc")
             st.caption("Only the numbers are kept.")
             act = nav(3, True)
@@ -2056,8 +2132,7 @@ def tab_homeowner():
             st.rerun()
     with right:
         h = home_house()                              # reads in this run happened after the first merge
-        html('<div class="card"><b>What we know so far</b></div>')
-        seen = set()
+        seen, out = set(), []
         rows = [(f, lb) for f, lb, *_ in FORM] + [("pipe_system", "Pipes"), ("kwh_printed", "Use on the bill")]
         ask = needs_answer(h)
         for f, label in rows:
@@ -2065,12 +2140,17 @@ def tab_homeowner():
             if v is None or label in seen:
                 continue
             seen.add(label)
-            c1, c2 = st.columns([3, 1])
             if f in ask:                             # unresolved conflict: no silent winner
-                c1.markdown(f"{label}: **⚠ Needs your answer**")
+                out.append(f'<div class="know-row"><span>{esc(label)}: <span class="need">⚠ Needs your answer</span>'
+                           '</span></div>')
                 continue
-            c1.markdown(f"{label}: **{value_text(h, f)}**")
-            html(f'<span class="pill">{esc(src_label(h.source.get(f)))}</span>', c2)
+            out.append(f'<div class="know-row"><span>{esc(label)}: <b>{esc(value_text(h, f))}</b></span>'
+                       f'<span class="src">{esc(src_label(h.source.get(f)))}</span></div>')
+        if not out:
+            out.append('<div class="know-row" style="color:var(--muted)">Nothing yet.</div>')
+        note = (f'<div class="know-note">{esc(ss.use_note)}</div>' if ss.get("use_note") else "")
+        html('<div class="know"><div style="font-weight:700;font-size:16px;margin-bottom:6px">What we know so far</div>'
+             + "".join(out) + note + '</div>')
 
 
 def request_subject(r: Result) -> str:
@@ -2513,22 +2593,6 @@ def tab_installer():
         st.html(sent_card(bid, h))
 
 
-top_l, top_r = st.columns([4, 1])
-top_l.markdown("### HP-Ready")
-X.DEMO_ONLY = top_r.toggle("Demo mode", help="Use cached reads only, no live AI calls.")
-if show_installer():                          # HP_SHOW_INSTALLER=1: the Installer tab (out of the MVP) comes back
-    t_home, t_eval, t_inst = st.tabs(["Homeowner", "Evaluation", "Installer"])
-else:
-    (t_home, t_eval), t_inst = st.tabs(["Homeowner", "Evaluation"]), None
-with t_home:
-    tab_homeowner()
-with t_eval:
-    tab_evaluation()
-if t_inst is not None:
-    with t_inst:
-        tab_installer()
-
-
 def _build_id() -> str:
     """Short commit of the running code, read from .git without calling git (works on Streamlit Cloud)."""
     try:
@@ -2545,4 +2609,18 @@ def _build_id() -> str:
         return "?"
 
 
-st.caption(f"build {_build_id()}")
+top_l, top_r = st.columns([4, 1])
+top_l.markdown("### HP-Ready")
+X.DEMO_ONLY = top_r.toggle("Demo mode", help="Use cached reads only, no live AI calls.")
+if show_installer():                          # HP_SHOW_INSTALLER=1: the Installer tab (out of the MVP) comes back
+    t_home, t_eval, t_inst = st.tabs(["Homeowner", "Evaluation", "Installer"])
+else:
+    (t_home, t_eval), t_inst = st.tabs(["Homeowner", "Evaluation"]), None
+with t_home:
+    tab_homeowner()
+with t_eval:
+    tab_evaluation()
+    st.caption(f"build {_build_id()}")      # developer info: Evaluation footer only, never on the Homeowner tab
+if t_inst is not None:
+    with t_inst:
+        tab_installer()
