@@ -31,7 +31,12 @@ TERMS = {"Heizlast": "Heating load: the heat the house loses on the coldest desi
 
 st.markdown("""<style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-.stApp, .stApp * {font-family:'Inter',system-ui,sans-serif;}
+:root{--bg:#F1F4F7;--ink:#15233B;--muted:#5B6676;--line:#DDE3EA;--line-soft:#EDF1F5;--card:#FFFFFF;
+      --g-bg:#E3F1E7;--g-tx:#17652F;--y-bg:#FBF0D5;--y-tx:#7A5205;--r-bg:#FBE4E1;--r-tx:#A1261A;
+      --g-fill:#2F7D4A;--y-fill:#F3D58A;--y-fill-tx:#4A3203;--r-fill:#A1261A;
+      --bar-g:#3E9E62;--bar-y:#E6B84A;--bar-r:#8E2A1E;--div-pos:#C2412D;--div-neg:#3D6FB6}
+.stApp, .stApp *:not([data-testid*="Icon"]):not([translate="no"]) {font-family:'Inter',system-ui,sans-serif;}
+.num{font-variant-numeric:tabular-nums}
 .chip{display:inline-block;font-size:14px;font-weight:600;padding:6px 10px;border-radius:999px;background:#fff;
       border:1px solid #E2E6EA;margin:0 6px 6px 0;color:#14213D}
 .chip.unsure{background:transparent;border:1.5px dashed #9AA5B1;color:#4A5565}
@@ -43,6 +48,9 @@ st.markdown("""<style>
 .bars{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:4px 0 16px}
 .bars div{height:5px;border-radius:3px;background:#D5DBE1}
 .bars div.on{background:#14213D}
+/* Material icons (Streamlit 1.66: span data-testid=stIconMaterial or st*Icon*, aria-hidden, translate=no) keep their font */
+.stApp [data-testid="stIconMaterial"], .stApp span[data-testid*="Icon"], .stApp span[translate="no"][aria-hidden="true"],
+.stApp .material-symbols-rounded {font-family:"Material Symbols Rounded" !important;}
 </style>""", unsafe_allow_html=True)
 
 
@@ -135,6 +143,155 @@ def scale(r: Result) -> str:
             '<p style="position:absolute;left:0;top:46px;margin:0;font-size:12px;color:#4A5565">35</p>'
             '<p style="position:absolute;right:0;top:46px;margin:0;font-size:12px;color:#4A5565">70 °C</p>'
             f'{marks}</div>')
+
+# ---------------------------------------------------------------- ui components
+# Pure HTML-string helpers shared by Evaluation and Installer (render with st.html or html()). Display only.
+
+_SOFT = {"green": ("var(--g-bg)", "var(--g-tx)"), "yellow": ("var(--y-bg)", "var(--y-tx)"),
+         "red": ("var(--r-bg)", "var(--r-tx)")}
+_FILLED = {"green": ("var(--g-fill)", "#FFFFFF"), "yellow": ("var(--y-fill)", "var(--y-fill-tx)"),
+           "red": ("var(--r-fill)", "#FFFFFF")}
+FIELD_NAMES = {"insulation_measures": "Insulation", "solar_thermal_dhw": "Solar thermal for hot water",
+               "extra_heat_source": "Extra heat source", "extra_source_all_winter": "Used all winter",
+               "unheated_area_note": "Unused area", "u_values": "U-values", "glazing": "Glazing",
+               "building_type": "Building type", "build_year": "Build year", "living_area_m2": "Living area",
+               "annual_fuel_kwh": "Yearly fuel use", "fuel_type": "Fuel", "radiator_count": "Radiators",
+               "radiator_size": "Radiator size", "pipe_system": "Pipe system", "heat_distribution": "Heat distribution",
+               "valves_to_replace": "Valves to replace", "hydraulic_balanced": "Hydraulic balancing",
+               "dhw_by_boiler": "Hot water via boiler", "current_flow_temp_c": "Current flow temperature",
+               "occupants": "Occupants", "renovation": "Renovation"}
+ENUM_NAMES = {"semi_detached": "Semi-detached", "terraced": "Terraced", "detached": "Detached", "two_pipe": "Two-pipe", "single_pipe": "Single-pipe",
+              "remote_quote": "Remote quote", "visit_with_parts": "Short visit with parts", "hold": "Hold until changes",
+              "wood_stove": "Wood stove", "tiled_stove": "Tiled stove", "heat_pump": "Heat pump", "lpg": "LPG",
+              "partially": "Partly renovated", "fully": "Fully renovated", "unrenovated": "Not renovated",
+              "insulation_first": "Insulation first", "notes_llm": "Notes (AI)", "none": "None"}
+
+
+def pill(color: str, text: str, filled: bool = False, size: str = "12px") -> str:
+    """Soft (default) or filled colour pill; unknown colour -> neutral outline."""
+    pad = "6px 12px" if filled else "4px 10px"
+    if color in _SOFT:
+        bg, fg = (_FILLED if filled else _SOFT)[color]
+        sty = f"background:{bg};color:{fg}"
+    else:
+        sty = "background:transparent;border:1px solid #C9D2DD;color:var(--muted)"
+    return (f'<span style="display:inline-block;font-size:{size};padding:{pad};border-radius:999px;'
+            f'font-weight:600;white-space:nowrap;{sty}">{text}</span>')
+
+
+def stacked_bar(pg: float, py: float, pr: float, width: str = "150px", height: int = 8) -> str:
+    seg = "".join(f'<span style="width:{max(p or 0, 0) * 100:.1f}%;background:var(--bar-{c});display:block"></span>'
+                  for c, p in (("g", pg), ("y", py), ("r", pr)))
+    return (f'<span role="img" aria-label="green {pg or 0:.0%}, yellow {py or 0:.0%}, red {pr or 0:.0%}" '
+            f'style="display:flex;height:{height}px;border-radius:{height / 2:g}px;overflow:hidden;width:{width};'
+            f'background:var(--line-soft)">{seg}</span>')
+
+
+def kpi_card(label: str, big: str, sub_html: str = "", aside: str = "") -> str:
+    """Evaluation KPI card. Text wraps, never truncates. `aside` = small muted text beside the big number."""
+    side = f'<div style="font-size:13px;color:var(--muted)">{aside}</div>' if aside else ""
+    return ('<div style="background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px 24px;'
+            'display:flex;flex-direction:column;gap:12px;min-width:0;overflow-wrap:anywhere">'
+            f'<div style="font-size:13px;color:var(--muted);font-weight:500">{label}</div>'
+            '<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">'
+            f'<div class="num" style="font-size:40px;font-weight:700;letter-spacing:-0.02em;line-height:1;'
+            f'color:var(--ink)">{big}</div>{side}</div>{sub_html}</div>')
+
+
+def diverging_bar(pct: float | None, half: float = 25) -> str:
+    """0-centred bar: + red to the right, − blue to the left; half the track = ±half %."""
+    track = 'position:relative;height:8px;background:var(--line-soft);border-radius:4px;display:block'
+    if pct is None:
+        return f'<span style="{track}"></span>'
+    w = min(abs(pct) / half, 1) * 50
+    side = ("left:50%;background:var(--div-pos);border-radius:0 4px 4px 0" if pct >= 0
+            else "right:50%;background:var(--div-neg);border-radius:4px 0 0 4px")
+    return (f'<span role="img" aria-label="{pct:+.1f} %" style="{track}">'
+            f'<span style="position:absolute;top:0;height:8px;width:{w:.1f}%;{side};display:block"></span></span>')
+
+
+def score_bar(score: float | None) -> str:
+    s = max(0.0, min(1.0, score or 0.0))
+    val = "–" if score is None else f"{score:.2f}"
+    return ('<span style="display:flex;align-items:center;gap:8px"><span style="width:70px;height:6px;'
+            'background:var(--line-soft);border-radius:3px;display:block;overflow:hidden">'
+            f'<span style="width:{s * 100:.0f}%;height:6px;background:var(--ink);display:block"></span></span>'
+            f'<span class="num" style="font-size:13px">{val}</span></span>')
+
+
+def flow_scale(p10: float | None, p50: float | None, p90: float | None, lo_t: float = 35, hi_t: float = 75) -> str:
+    """35–75 °C scale: 4 coloured bands, grey likely-range bar above, navy p50 marker, labels in a grid below."""
+    if p50 is None and p10 is None and p90 is None:
+        return ""
+    span = hi_t - lo_t
+
+    def pos(v):
+        return max(0.0, min(100.0, (v - lo_t) / span * 100))
+    bands = [(45, "#2F7D4A", "ideal ≤45"), (55, "#7CC293", "efficient ≤55"), (60, "#E6B84A", "≤60"),
+             (hi_t, "#E9C9C3", "pricier above")]
+    widths, prev = [], lo_t
+    for edge, _, _ in bands:
+        widths.append((edge - prev) / span * 100)
+        prev = edge
+    segs = "".join(f'<span style="width:{w:.2f}%;background:{c};display:block"></span>' for w, (_, c, _) in zip(widths, bands))
+    cols = " ".join(f"{w:.2f}fr" for w in widths)
+    labels = "".join(f'<span style="text-align:{"right" if i == 3 else "left"}">{lab}</span>'
+                     for i, (_, _, lab) in enumerate(bands))
+    vals = [v for v in (p10, p90) if v is not None] or [p50]
+    a, b = pos(min(vals)), pos(max(vals))
+    rng = (f'<span style="position:absolute;left:{a:.2f}%;width:{max(b - a, 1):.2f}%;top:0;height:6px;border-radius:3px;'
+           'background:#C9D2DD;display:block"></span>')
+    mark = ("" if p50 is None else
+            f'<span style="position:absolute;left:{pos(p50):.2f}%;top:8px;width:3px;height:22px;margin-left:-1px;'
+            'background:var(--ink);border-radius:2px;display:block"></span>')
+    return (f'<div role="img" aria-label="flow temperature {t(p50)}, likely {t(min(vals))} to {t(max(vals))}">'
+            f'<div style="position:relative;height:34px">{rng}<span style="position:absolute;left:0;right:0;top:14px;'
+            f'height:10px;display:flex;border-radius:5px;overflow:hidden">{segs}</span>{mark}</div>'
+            f'<div style="display:grid;grid-template-columns:{cols};font-size:11px;color:var(--muted);margin-top:4px">'
+            f'{labels}</div></div>')
+
+
+def human_enum(v) -> str:
+    s = str(v)
+    if s in ENUM_NAMES:
+        return ENUM_NAMES[s]
+    return s.replace("_", " ").capitalize() if s.replace("_", "").isalnum() and s.islower() else s
+
+
+def human_field(name: str) -> str:
+    return FIELD_NAMES.get(name, name.replace("_", " ").capitalize())
+
+
+def human_value(v) -> str:
+    if v is None or v == "" or (isinstance(v, (list, tuple, set, dict)) and not v):
+        return "None"
+    if isinstance(v, bool):
+        return "Yes" if v else "No"
+    if isinstance(v, float):
+        return f"{v:,.0f}" if abs(v) >= 100 else f"{v:.2f}".rstrip("0").rstrip(".")
+    if isinstance(v, (list, tuple, set)):
+        return ", ".join(human_value(x) for x in v)
+    if isinstance(v, dict):
+        return ", ".join(f"{human_field(k)} {human_value(x)}" for k, x in v.items() if x is not None) or "None"
+    return human_enum(v)
+
+
+def fmt_range(lo, hi, unit: str = "") -> str:
+    u = f" {unit}" if unit else ""
+    if lo is None and hi is None:
+        return "–"
+    if lo is None or hi is None or round(lo, 1) == round(hi, 1):
+        return f"{round(lo if hi is None else hi, 1):g}{u}"
+    lo, hi = min(lo, hi), max(lo, hi)
+    return f"{round(lo, 1):g}–{round(hi, 1):g}{u}"
+
+
+def pct_diff(a, b) -> str:
+    """(a − b) / b as a signed rounded % with a real minus sign, e.g. '+16 %', '−4 %'."""
+    if a is None or not b:
+        return "–"
+    d = round((a - b) / b * 100)
+    return f"{'+' if d > 0 else '−' if d < 0 else '±'}{abs(d)} %"
 
 # ---------------------------------------------------------------- shared blocks
 
