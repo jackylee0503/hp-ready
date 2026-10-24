@@ -1558,14 +1558,13 @@ def src_label(src: str | None) -> str:
 
 
 def value_text(h: House, f: str, v=None, src: str | None = None) -> str:
-    """A House value for the screens; a form year shows its band, never the representative year."""
+    """A House value for the screens; a year stored from an old band answer shows the band (years are typed now)."""
     v = getattr(h, f) if v is None else v
     src = src or h.source.get(f)
-    if f == "build_year" and src in (FORM_MERGE_SRC, "confirmed"):
+    if f == "build_year":
         ev = h.evidence.get("build_year", "")
-        band = ev[5:] if ev.startswith("band ") else None
-        if src == FORM_MERGE_SRC or (band and year_band(v) == band):
-            return band or year_band(v) or str(v)
+        if ev.startswith("band ") and year_band(v) == ev[5:]:
+            return ev[5:]
     if isinstance(v, bool):
         return "yes" if v else "no"
     if f in ("annual_fuel_kwh", "kwh_printed"):
