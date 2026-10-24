@@ -153,6 +153,164 @@ def renovation_column(h: House) -> dict:
     return {"col": 1, "why": "renovation unknown → unrenovated column", "inferred": False, "unknown": True}
 
 
+# ---------------------------------------------------------------- step 2 seam: W/m² from the table or a learned model
+#
+# A model is a plain function fn(features: dict) -> dict. Plug it in with engine.set_w_model(fn, name="...")
+# or the env var HP_W_MODEL="module:function" (imported lazily on first use). No model → the table, unchanged.
+
+_W_MODEL: dict = {"fn": None, "name": None, "env_checked": False}
+_WARNED: set = set()
+
+
+def _warn_once(msg: str) -> None:
+    if msg not in _WARNED:
+        _WARNED.add(msg)
+        import warnings
+        warnings.warn(msg, RuntimeWarning, stacklevel=3)
+
+
+def set_w_model(fn=None, name: str | None = None) -> None:
+    """Plug in a learned W/m² model (`fn(features) -> {"w": float, "lo"?, "hi"?, "why"?}`); None = back to the table.
+    An explicit call overrides HP_W_MODEL."""
+    _W_MODEL.update(fn=fn, name=(name or getattr(fn, "__name__", "model")) if fn else None, env_checked=True)
+
+
+def _w_model():
+    if not _W_MODEL["env_checked"]:
+        _W_MODEL["env_checked"] = True
+        import os
+        spec = os.environ.get("HP_W_MODEL", "").strip()
+        if spec:
+            try:
+                import importlib
+                mod, _, attr = spec.partition(":")
+                fn = getattr(importlib.import_module(mod), attr)
+                if not callable(fn):
+                    raise TypeError(f"{attr} is not callable")
+                _W_MODEL.update(fn=fn, name=attr)
+            except Exception as e:
+                _warn_once(f"HP_W_MODEL={spec!r} could not be loaded ({type(e).__name__}: {e}); using the W/m² table")
+    return _W_MODEL["fn"], _W_MODEL["name"]
+
+
+def features(h: House, col: int) -> dict:
+    """Model input for one house and one renovation column. Unknown stays None (never 0). Keys (the contract):
+
+    build_year            int | None    year built
+    living_area_m2        float | None  documented living area (the W/m² basis is the *heated* area; the engine
+                                        applies the unused-area factor itself, so predict W per heated m²)
+    renovation            str | None    stated: "unrenovated" | "partially" | "fully" | None
+    renovation_column     int           column the engine asks for: 1 unrenovated/unknown, 2 partially, 3 fully
+                                        (the engine may call you once per column to test whether renovation matters)
+    renovation_column_name str          "unrenovated / unknown" | "partially renovated" | "fully renovated"
+    renovation_inferred   bool          column 2 chosen from notes/U-values, not from a stated status
+    building_type         str | None    House.building_type, else the one read from the notes
+    heat_distribution     str | None    "radiators" | "underfloor" | "mixed"
+    fuel_type             str | None    "gas" | "lpg" | "oil" | "district" | "electric"
+    annual_fuel_kwh       float | None  yearly fuel by the engine's precedence (bill > certificate > stated > litres
+                                        > advance payment); NOT heat, NOT corrected for efficiency or hot water
+    occupants             int | None
+    rooms                 int | None
+    region                str | None    e.g. "munich"
+    u_wall, u_roof, u_windows  float | None  W/m²K from the notes, if stated
+    insulation_measures_count  int | None    number of insulation works in the notes; 0 = notes say none; None = unknown
+    unheated_area         bool          notes mention an unused/unheated area
+    extra_heat_source     str | None    "wood_stove" | "tiled_stove" | "heat_pump" | "none" | None
+    extra_source_all_winter bool | None
+    """
+    o = h.notes_obs
+    u = (o.u_values if o else {}) or {}
+    rc = renovation_column(h)
+    try:
+        fuel = fuel_kwh(h)["kwh"]
+    except Exception:
+        fuel = None
+    return {
+        "build_year": h.build_year,
+        "living_area_m2": h.living_area_m2,
+        "renovation": h.renovation,
+        "renovation_column": col,
+        "renovation_column_name": COL_NAME[col],
+        "renovation_inferred": bool(rc["inferred"]),
+        "building_type": h.building_type or (o.building_type if o else None),
+        "heat_distribution": h.heat_distribution,
+        "fuel_type": fuel_type_of(h),
+        "annual_fuel_kwh": fuel,
+        "occupants": h.occupants,
+        "rooms": h.rooms,
+        "region": h.region,
+        "u_wall": u.get("wall"),
+        "u_roof": u.get("roof"),
+        "u_windows": u.get("windows"),
+        "insulation_measures_count": (len(o.insulation_measures) if o and o.insulation_measures is not None else None),
+        "unheated_area": bool(o and o.unheated_area_note),
+        "extra_heat_source": (o.extra_heat_source if o else None),
+        "extra_source_all_winter": (o.extra_source_all_winter if o else None),
+    }
+
+
+def _w_table(h: House, col: int, mix_cols: tuple[int, int] | None) -> dict:
+    if h.build_year is not None:
+        row = _band(W_PER_M2, h.build_year)
+        vals, point, band = [row[c] for c in (mix_cols or (col,))], row[col], W_PER_M2_ORGANISER_BAND.get(row[0], "")
+    else:
+        vals = [row[col] for row in W_PER_M2]
+        point, band = float(np.median(vals)), "year unknown: all age bands"
+    return {"w_values": vals, "w_point": point, "band": band, "lo": None, "hi": None,
+            "w_lo": None, "w_hi": None, "source": "table", "why": ""}
+
+
+def _call_model(fn, h: House, col: int) -> dict:
+    out = fn(features(h, col))
+    if not isinstance(out, dict) or "w" not in out:
+        raise ValueError("model must return a dict with 'w'")
+    w = float(out["w"])
+    if not math.isfinite(w) or w <= 0:
+        raise ValueError(f"w = {out['w']!r} is not a positive number")
+    lo, hi = out.get("lo"), out.get("hi")
+    if (lo is None) != (hi is None):
+        raise ValueError("give both 'lo' and 'hi' or neither")
+    if lo is not None:
+        lo, hi = float(lo), float(hi)
+        if not (math.isfinite(lo) and math.isfinite(hi) and 0 < lo <= hi):
+            raise ValueError(f"lo/hi = {out['lo']!r}/{out['hi']!r} is not a valid positive range")
+    return {"w": w, "lo": lo, "hi": hi, "why": str(out.get("why") or "no reason given")}
+
+
+def w_per_m2_for(h: House, col: int, mix_cols: tuple[int, int] | None = None) -> dict:
+    """W/m² for one house → {w_values, w_point, band, lo, hi, source, why} (+ w_lo/w_hi: per-w_values ranges or None).
+    No model → exactly the table. Model error / bad output → the table, `why` says so."""
+    t = _w_table(h, col, mix_cols)
+    fn, name = _w_model()
+    if fn is None:
+        return t
+    try:
+        cols = mix_cols or (col,)
+        outs = {c: _call_model(fn, h, c) for c in set(cols) | {col}}
+    except Exception as e:
+        msg = f"{type(e).__name__}: {e}"[:160]
+        _warn_once(f"W/m² model {name} failed ({msg}); table used")
+        t["why"] = f"model {name} failed ({msg}), table used"
+        return t
+    m = outs[col]
+    ranged = all(outs[c]["lo"] is not None for c in cols)
+    return {"w_values": [outs[c]["w"] for c in cols], "w_point": m["w"], "band": t["band"],
+            "lo": m["lo"], "hi": m["hi"],
+            "w_lo": [outs[c]["lo"] for c in cols] if ranged else None,
+            "w_hi": [outs[c]["hi"] for c in cols] if ranged else None,
+            "source": f"model:{name}", "why": "; ".join(dict.fromkeys(outs[c]["why"] for c in cols))}
+
+
+def example_table_model(features: dict) -> dict:
+    """Example plug-in (proves the plumbing): the table value for the year/column, lo/hi = ±20 %."""
+    year, col = features["build_year"], features["renovation_column"]
+    if year is not None:
+        w = float(_band(W_PER_M2, year)[col])
+    else:
+        w = float(np.median([row[col] for row in W_PER_M2]))
+    return {"w": w, "lo": 0.8 * w, "hi": 1.2 * w, "why": "example: same numbers as the table"}
+
+
 # ---------------------------------------------------------------- setup shared by MC, parts, next question
 
 def setup(h: House, p: Params = DEFAULT, col: int | None = None, mix_cols: tuple[int, int] | None = None) -> dict:
@@ -162,15 +320,10 @@ def setup(h: House, p: Params = DEFAULT, col: int | None = None, mix_cols: tuple
     s["rc"] = rc
     col = col or rc["col"]
     s["col"] = col
-    # W/m²
-    if h.build_year is not None:
-        row = _band(W_PER_M2, h.build_year)
-        s["w_values"] = [row[c] for c in (mix_cols or (col,))]
-        s["w_point"] = row[col]
-        s["band"] = W_PER_M2_ORGANISER_BAND.get(row[0], "")
-    else:
-        vals = [row[col] for row in W_PER_M2]
-        s["w_values"], s["w_point"], s["band"] = vals, float(np.median(vals)), "year unknown: all age bands"
+    # W/m² (table or learned model, see w_per_m2_for)
+    wm = w_per_m2_for(h, col, mix_cols)
+    s["w_values"], s["w_point"], s["band"] = wm["w_values"], wm["w_point"], wm["band"]
+    s["w_lo"], s["w_hi"], s["w_source"], s["w_why"] = wm["w_lo"], wm["w_hi"], wm["source"], wm["why"]
     # area
     s["area"] = h.living_area_m2
     o = h.notes_obs
@@ -259,6 +412,10 @@ def monte_carlo(s: dict, p: Params, n: int = 500, seed: int = 0) -> dict | None:
     ufh = rng.uniform(*UNDERFLOOR_FLOW_C, n)
 
     w = np.asarray(s["w_values"], dtype=float)[wpick]
+    if s.get("w_lo") is not None:               # learned model gave a range: W/m² ~ U(lo, hi) instead of w × U(0.8, 1.2)
+        u = (wf - p.load_spread[0]) / (p.load_spread[1] - p.load_spread[0])   # same random stream, same order
+        lo_w, hi_w = np.asarray(s["w_lo"], dtype=float)[wpick], np.asarray(s["w_hi"], dtype=float)[wpick]
+        w, wf = lo_w + (hi_w - lo_w) * u, 1.0
     load = p.k * w * wf * s["area"] * af * rng_widen / 1000.0
     if s["dist_calc"] == "underfloor":
         t = ufh
@@ -409,8 +566,13 @@ def _physics(h: House, p: Params, n: int, seed: int) -> Result:
         T.append(Step(label="W/m² (age × renovation)",
                       value=(f"{s['w_point']:.0f} W/m²" if not flips else
                              f"{s['w_values'][0]:.0f} or {s['w_values'][1]:.0f} W/m² (renovation unknown, both used)"),
-                      assumption=(f"built {h.build_year or '?'}, {COL_NAME[s['col']]} ({rc['why']}); organiser band "
-                                  f"{s['band']}; first estimate, not a DIN EN 12831 calculation")))
+                      assumption=(f"learned model {s['w_source'][6:]}: {s['w_why']}; built {h.build_year or '?'}, "
+                                  f"{COL_NAME[s['col']]} ({rc['why']}); organiser band {s['band']}; "
+                                  "first estimate, not a DIN EN 12831 calculation"
+                                  if s["w_source"] != "table" else
+                                  f"built {h.build_year or '?'}, {COL_NAME[s['col']]} ({rc['why']}); organiser band "
+                                  f"{s['band']}; first estimate, not a DIN EN 12831 calculation"
+                                  + (f"; learned {s['w_why']}" if s["w_why"] else ""))))
         T.append(Step(label="Heating load (point) = k × W/m² × area",
                       value=f"{p.k:.2f} × {s['w_point']:.0f} W/m² × {heated:,.0f} m² = {p_load:.1f} kW",
                       assumption="k is the only calibrated parameter (3 dev buildings)"))
@@ -440,7 +602,11 @@ def _physics(h: House, p: Params, n: int, seed: int) -> Result:
         lq = mc["load_q"]
         r.heat_load_kw = Range(p10=round(lq[0], 2), p50=round(lq[1], 2), p90=round(lq[2], 2))
         T.append(Step(label="Heating load range (MC p10-p50-p90)", value=f"{lq[0]:.1f} – {lq[1]:.1f} – {lq[2]:.1f} kW",
-                      assumption=f"N={n}, seed {seed}: W/m² × U(0.8, 1.2)" + (", unused area U(0.7, 1.0)" if s["unused"] else "")
+                      assumption=f"N={n}, seed {seed}: "
+                                 + ("W/m² × U(0.8, 1.2)" if s["w_lo"] is None else
+                                    "W/m² ~ U(" + " | ".join(f"{a:.0f}, {b:.0f}" for a, b in zip(s["w_lo"], s["w_hi"]))
+                                    + ") from the learned model")
+                                 + (", unused area U(0.7, 1.0)" if s["unused"] else "")
                                  + (f", area up to × {s['area_widen']:.2f}" if s["area_widen"] > 1 else "")))
         heated_mid = s["area"] * s["af_point"]
         r.specific_load_w_m2 = round(lq[1] * 1000 / heated_mid, 1)

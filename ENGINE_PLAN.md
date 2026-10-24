@@ -241,5 +241,16 @@ The app reads these `Result` fields; none may stay empty for a building with cor
   - `python loader.py --save-baseline`: save a new snapshot, only after a change you meant to make.
 - Routine after each engine change: `--compare-baseline` → explain every `!!` → no `check_result` lines in Evaluation → save the baseline only if the change was intended.
 
+## Plugging in a learned W/m² model
+
+The W/m² table (step 2) can be replaced by a trained model without touching the rest of the engine or the app.
+
+- **Hook:** `engine.set_w_model(fn, name="...")` or `HP_W_MODEL="module:function"`. `set_w_model(None)` goes back to the table. No model → results byte-for-byte as before.
+- **Input:** `engine.features(h, col)` → dict; the key list is in its docstring (year, area, renovation + asked column, building type, distribution, fuel type and yearly kWh, occupants, rooms, region, wall/roof/window U-values, insulation-measure count, unheated-area and extra-heat-source flags). Unknown stays `None`; never fill with 0 or a mean inside the engine: the model must handle missing values itself.
+- **Output:** `{"w": float, "lo"?: float, "hi"?: float, "why"?: str}`, W per m² of *heated* area (the engine applies k and the unused-area factor). With `lo`/`hi`, the Monte Carlo draws U(lo, hi) instead of w × U(0.8, 1.2). `why` goes into the Rechenweg ("learned model <name>: <why>; organiser band …").
+- **Fallback:** exception, NaN/inf, w ≤ 0 or an invalid lo/hi → the table for that house, the Rechenweg says "model … failed, table used", one warning per message. The app never breaks.
+- **Check:** `HP_W_MODEL=mymod:predict python loader.py --compare-baseline` (explain every `!!`), `python calibrate.py` (k is refit on top of the model; report the leave-one-out errors next to the table's +19.8 / −9.4 / −7.9 %). `engine:example_table_model` returns the table ±20 % and must reproduce today's colours.
+- **Honesty rules:** train only on real data (e.g. public German building typology such as IWU/TABULA, energy-certificate statistics), never on generated or synthetic buildings and never on the 2 hidden buildings; 3 dev buildings are for checking, not training. Keep None as None. Always report leave-one-out next to the table baseline; if the model does not beat the table, keep the table.
+
 **Cut order if late (from the end):** Task 11 detail → secondary contradiction rules in Task 8 → Task 9 wording. Never cut Task 6 (Monte Carlo).
 **Not in this plan:** step 10 `quote_request` / `handover_pdf` (who writes them is agreed with Junwoo when P0-c starts).
