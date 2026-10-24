@@ -2,7 +2,9 @@
 
 **One line:** inputs become a `House`, the engine turns a `House` into a `Result`, the app only shows the `Result`.
 Readers only *read* (form, bills, photos). The engine (plain Python physics) *decides*.
-Since 2026-10-24 page 1 is a form, and three Python modules (`modules/`, owned by teammates) sit behind `orchestrator.py`
+Homeowner wizard (UI review 2026-10-24): 1/4 "Your house" dropdowns (year as a band → representative year), 2/4 radiator photo,
+3/4 bill, 4/4 optional free text (LLM parser only when the owner presses "Read it"; it only fills fields still empty).
+Three Python modules (`modules/`, owned by teammates) sit behind `orchestrator.py`
 with the old code as fallback. Contract: `CONTRACT.md`.
 
 ## 1. Data flow
@@ -11,15 +13,17 @@ with the old code as fallback. Contract: `CONTRACT.md`.
 flowchart LR
     subgraph IN[Inputs]
       A[data/buildings_*.json<br/>5 real buildings]
-      B[Page-1 form]
+      B[Page-1 form<br/>dropdowns]
+      T[Page-4 free text<br/>optional]
       C[Bill / listing<br/>photo or PDF]
       D[Radiator photo]
     end
     A -->|loader.py<br/>regex + AI reads notes| H[House]
     B -->|app.form_house| H1[House piece]
+    T -->|extract.py house_text, on demand<br/>source notes_llm = lowest| H0[House piece]
     C -->|orchestrator: image_validation → bill_recognizer<br/>fallback extract.py| H2[House piece]
     D -->|orchestrator: image_validation<br/>fallback extract.py| H3[House piece]
-    H1 & H2 & H3 -->|extract.merge<br/>who wins per field| H
+    H0 & H1 & H2 & H3 -->|extract.merge<br/>who wins per field| H
     H -->|orchestrator: calculation<br/>fallback engine.py → engine_tracer.py| R[Result]
     R --> E[📊 Evaluation tab]
     R --> HO[🏠 Homeowner answer card]
@@ -30,7 +34,8 @@ Plain text version:
 
 ```
 data/*.json ──loader.py──────────────────────────────────────────┐
-page-1 form ──────────────────────────────────────┐              │
+free text (opt.) ──extract.py, on "Read it"──────┐              │
+page-1 form ──────────────────────────────────────┤              │
 bill / listing ──orchestrator (module | extract.py)┼─> pieces ──merge──> House
 radiator photo ──orchestrator (module | extract.py)┘
 House ──orchestrator: calculation module | engine.py | engine_tracer.py──> Result ──app.py──> 3 tabs
