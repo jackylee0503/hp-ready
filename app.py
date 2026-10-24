@@ -1265,26 +1265,29 @@ NAMES = {"detached": "detached", "semi_detached": "semi-detached", "terraced": "
          "unrenovated": "not renovated", "partially": "partly", "fully": "fully",
          "radiators": "radiators", "underfloor": "underfloor", "mixed": "both",
          "gas": "gas", "lpg": "LPG", "oil": "oil", "district": "district heating", "electric": "electric"}
-FORM = [  # (field, label, options, value -> text)
-    ("build_year", "Year built", [b for b, *_ in YEAR_BANDS], None),
-    ("living_area_m2", "Living area", list(range(40, 401, 10)), "about {} m²"),
+FORM = [  # (field, label, options | NUM (min, max, step, unit), value -> text)
+    ("build_year", "Year built", ("num", 1800, 2026, 1, ""), "{}"),
+    ("living_area_m2", "Living area", ("num", 10, 2000, 5, "m²"), "{:,} m²"),
     ("building_type", "Building type", ["detached", "semi_detached", "terraced", "apartment"], NAMES),
     ("renovation", "Insulation / renovation", ["unrenovated", "partially", "fully"], NAMES),
     ("heat_distribution", "Heating surfaces", ["radiators", "underfloor", "mixed"], NAMES),
     ("fuel_type", "Fuel", ["gas", "lpg", "oil", "district", "electric"], NAMES),
-    ("annual_fuel_kwh", "Yearly use", list(range(2000, 60001, 1000)), "{:,} kWh"),       # fuel isn't oil
-    ("annual_fuel_liters", "Yearly use", list(range(500, 6001, 100)), "{:,} litres"),    # fuel is oil
-    ("occupants", "People", list(range(1, 9)), "{}"),
-    ("rooms", "Rooms", list(range(1, 21)), "{}"),
-    ("radiator_count", "Radiators", list(range(1, 31)), "{}"),
+    ("annual_fuel_kwh", "Yearly use", ("num", 0, 200000, 500, "kWh / year"), "{:,} kWh"),        # fuel isn't oil
+    ("annual_fuel_liters", "Yearly use", ("num", 0, 20000, 100, "litres / year"), "{:,} litres"),  # fuel is oil
+    ("occupants", "People", ("num", 1, 20, 1, ""), "{}"),
+    ("rooms", "Rooms", ("num", 1, 50, 1, ""), "{}"),
+    ("radiator_count", "Radiators", ("num", 0, 80, 1, ""), "{}"),
     ("radiator_size", "Radiator size", ["small", "medium", "large"], "{}"),
     ("dhw_by_boiler", "Hot water from the boiler", ["yes", "no"], "{}"),
 ]
-FORM_EXAMPLE = {"build_year": "1960–1978", "living_area_m2": 140, "building_type": "terraced", "renovation": "partially",
+# Fields that move the colour most (engine: load = area × W/m²(year, renovation); flow temperature from radiators).
+IMPORTANT = {"build_year", "living_area_m2", "heat_distribution", "renovation", "radiator_count", "radiator_size"}
+FORM_EXAMPLE = {"build_year": 1972, "living_area_m2": 140, "building_type": "terraced", "renovation": "partially",
                 "heat_distribution": "radiators", "fuel_type": "gas", "annual_fuel_kwh": 18000, "occupants": 3,
                 "radiator_count": 10, "radiator_size": "large", "dhw_by_boiler": "yes"}
-INT_FIELDS = ("occupants", "rooms", "radiator_count")
+INT_FIELDS = ("build_year", "occupants", "rooms", "radiator_count")
 FLOAT_FIELDS = ("living_area_m2", "annual_fuel_kwh", "annual_fuel_liters")
+NUM_FIELDS = {f for f, _, o, _ in FORM if isinstance(o, tuple)}
 
 
 def form_text(f: str, v) -> str:
@@ -1351,17 +1354,15 @@ def form_fill_example():
     ss = st.session_state
     ss.form = dict(FORM_EXAMPLE)
     for f, *_ in FORM:
-        ss[f"pf_{f}"] = ss.form.get(f, DK)
+        ss[f"pf_{f}"] = ss.form.get(f, None if f in NUM_FIELDS else DK)
         ss.confirmed.pop(f, None)
 
 
 def form_house() -> House | None:
-    """Page-1 answers → House (source FORM_MERGE_SRC, confidence 0.9). None when nothing is filled."""
+    """Page-1 answers → House (source FORM_MERGE_SRC, confidence 0.9). None when nothing is filled.
+    Integers are typed exactly (empty = don't know); categories come from dropdowns."""
     fm = st.session_state.get("form") or {}
     vals, ev = {}, {}
-    if fm.get("build_year") in BAND_YEAR:
-        vals["build_year"] = BAND_YEAR[fm["build_year"]]
-        ev["build_year"] = f"band {fm['build_year']}"
     for f in INT_FIELDS:
         if fm.get(f) is not None:
             vals[f] = int(fm[f])
@@ -1389,16 +1390,25 @@ def form_house() -> House | None:
 def form_page(h: House):
     ss = st.session_state
     st.markdown("## Your house")
-    st.caption("A few facts. 'Don't know' is fine.")
+    html('<p style="font-size:16px;margin:0 0 4px">If you don\'t know everything, it\'s okay.</p>'
+         '<p class="muted" style="margin:0 0 12px">Fill in what you know and leave the rest empty. '
+         '<b>*</b> marks what matters most for the answer.</p>')
     st.button("Fill with the example", on_click=form_fill_example)
     for f, label, opts, _ in form_rows(ss.form.get("fuel_type")):
         key = f"pf_{f}"
+        num = isinstance(opts, tuple)
         if key not in ss:                        # seed once from the stored answers (widget state is dropped off-page)
-            ss[key] = ss.form.get(f, DK)
+            ss[key] = ss.form.get(f, None if num else DK)
         c1, c2, c3 = st.columns([2, 3, 1.3])
-        c1.markdown(label)
-        c2.selectbox(label, [DK] + opts, key=key, on_change=form_changed, args=(f,), label_visibility="collapsed",
-                     format_func=lambda v, x=f: form_text(x, v))
+        c1.markdown(f"{label} **\\***" if f in IMPORTANT else label)
+        if num:
+            _, lo, hi, step, unit = opts
+            c2.number_input(label, min_value=lo, max_value=hi, step=step, value=None, key=key,
+                            placeholder=f"Don't know{' · ' + unit if unit else ''}", on_change=form_changed,
+                            args=(f,), label_visibility="collapsed")
+        else:
+            c2.selectbox(label, [DK] + opts, key=key, on_change=form_changed, args=(f,),
+                         label_visibility="collapsed", format_func=lambda v, x=f: form_text(x, v))
         src, v = h.source.get(f), getattr(h, f)
         if v is None:
             tag = "—"
