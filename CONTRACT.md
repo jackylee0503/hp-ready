@@ -1,6 +1,75 @@
-# JSON contract: UI ↔ modules (draft v1)
+# JSON contract: UI ↔ modules (draft v2)
 
-Status: **draft v1** (2026-10-24). Owner: Junwoo (UI + architecture). Change it only together; bump `x-contract-version`.
+Status: **draft v2** (`schema.CONTRACT_VERSION = "2-draft"`, 2026-10-24). Owner: Junwoo (UI + architecture). Change it only together; bump `x-contract-version`. §0 is the contract any decision logic must meet; §1–§6 (v1) are **still accepted** and describe the transport, the inputs and the optional physics extras.
+
+## §0 Contract v2 core (any logic)
+
+The `calculation` module may be physics, a trained model (GBM, GP, …), rules or a hybrid. The app renders **any** `Result` that fills the core below; everything else is optional.
+
+**Required core** (`schema.check_result(h, r)` returns no warnings):
+
+| Field | Meaning | `check_result` wording when broken |
+| --- | --- | --- |
+| `best_color` + `p_green`, `p_yellow`, `p_red` | verdict (`green`/`yellow`/`red`) and colour probabilities summing to 1 | `probabilities sum to X, not 1` |
+| `verdict_basis` | `likely_suitable` · `checks_remain` · `cannot_tell_yet` · `obstacle` (obstacle ⇒ red; missing data ⇒ yellow `cannot_tell_yet`, never red) | `verdict_basis obstacle but colour is not red` · `missing data must be yellow, not red` |
+| `reason` | one plain sentence for the homeowner | `reason empty` |
+| `quantities` | at least one `Quantity` with `p50` (and p10 ≤ p50 ≤ p90) | `no quantity (quantities or legacy ranges)` · `KEY: p10 ≤ p50 ≤ p90 broken` |
+| `explanations` **or** `trace` | something that explains the verdict | `nothing explains the verdict (explanations or trace)` |
+| `open_checks` | what is still open (`{item, why}`) | `open_checks empty` |
+| `model_info` | which logic produced it | `model_info missing` |
+| (not green) `options` or `path_to_yellow` | what gets the house to 55 °C | `not green but no options / path_to_yellow` |
+
+The colour/reason/quantity/explanation/open_checks checks apply once the house has area and build year.
+
+**`Quantity`** — any number the logic predicts, with uncertainty: `key` (snake_case id), `label` (empty → from `QUANTITY_KEYS` or the key), `unit`, `p10`, `p50`, `p90`, `note`. Well-known keys (`schema.QUANTITY_KEYS`) are read by name by the screens: `flow_temp_c` (°C, coldest day), `heat_load_kw`, `heat_load_bill_kw`, `specific_load_w_m2`, `cost_now_eur`, `cost_hp_eur`, `saving_eur`. **Any other key** (e.g. `p_ok_hp`) is shown generically under "Other model outputs" (label, median, p10–p90, unit).
+
+**`Explanation`** — how one input moved the result: `feature` (House field or model feature), `value` (as shown to people), `contribution` (signed effect on `target`, in `unit`), `target` (`p_green`, `flow_temp_c`, `log_odds_green`, …), `unit`, `text` (optional sentence). The UI shows the top 6 by |contribution| as signed bars ("Why the model decided this"); without contributions it lists `text`.
+
+**`ModelInfo`** — reproducibility for the paper: `name`, `version`, `kind` (`physics` · `ml` · `hybrid` · `rule` · `other`), `trained_on`, `data_hash`, `seed`, `params`, `metrics` (self-reported, e.g. `{"loo_verdict_acc": 0.67}`). The UI shows "Model: name · version · kind" (Evaluation detail, Installer header) and metrics as **"Reported by the model: …"**, always labelled self-reported. Numbers the app computes itself from predictions vs `reference` (verdicts reproduced, heat-load error, Compare logic) are shown as measured (invariant 8).
+
+**Minimal valid module reply** (`data` validates as `Result`, `check_result` → `[]`):
+
+```json
+{"ok": true, "module": "calculation", "version": "2-draft", "warnings": [],
+ "data": {
+  "best_color": "green", "verdict_basis": "likely_suitable",
+  "p_green": 0.7, "p_yellow": 0.2, "p_red": 0.1,
+  "reason": "The existing radiators should manage at a low flow temperature.",
+  "open_checks": [{"item": "Confirm radiator sizes on site", "why": "no photo yet"}],
+  "quantities": [
+    {"key": "flow_temp_c", "p10": 46.0, "p50": 51.0, "p90": 57.0},
+    {"key": "heat_load_kw", "p10": 7.9, "p50": 9.3, "p90": 11.2},
+    {"key": "p_ok_hp", "label": "P(heat pump OK)", "p10": 0.62, "p50": 0.74, "p90": 0.83}
+  ],
+  "explanations": [
+    {"feature": "radiator_count", "value": "14", "contribution": 0.21, "target": "p_green"},
+    {"feature": "build_year", "value": "band 1979–1994", "contribution": -0.12, "target": "p_green"},
+    {"feature": "living_area_m2", "value": "140", "contribution": 0.08, "target": "p_green"}
+  ],
+  "model_info": {"name": "gbm-test", "version": "0.1", "kind": "ml", "trained_on": "3 dev buildings",
+                 "seed": 0, "params": {}, "metrics": {"loo_verdict_acc": 0.67}}
+ }}
+```
+
+**Optional extras** (the UI uses them when present, shows "–" or falls back when absent): the physics fields `required_flow_temp_c`, `heat_load_kw`, `heat_load_bill_kw` (legacy ranges), `jaz_bucket`, `cost_*`, `contradictions`, `trace`, `options`, `radiators`, `flags`, `always_checks`, `site_flags`, `hints`, and the installer fields `visit_type`, `parts`, `installer_checklist`, `next_step`, `next_photo`, `confidence`, `lead_score`. When a module leaves the installer fields empty, the app fills **only the empty ones** from the baseline `engine.installer_brief` (run on a copy, the module's `flow_temp_c` / `heat_load_kw` handed in) and marks the Installer header "installer brief from baseline" (`orchestrator.fill_installer_brief`).
+
+**Helpers.**
+- `schema.with_core(r, default_info)` — v1 → v2 adapter: fills `quantities` from the legacy ranges/cost fields and `model_info` from `default_info` when empty (the app applies it to engine.py results with `BASELINE_INFO`).
+- `schema.quantity(r, key)` — the one door the UI reads numbers through: v2 `quantities` first, legacy field as fallback. A model that fills only `quantities` renders everywhere.
+- `schema.optional_gaps(r)` — optional fields left empty (information, not errors).
+- `orchestrator.compare_logic(buildings) -> list[dict]` — A/B for the paper: baseline (engine.py, A) vs the calculation module (B) per building (colour, p_green, flow and heat-load p50 with Δ, |error| vs reference, verdict hit); `orchestrator.compare_summary(rows)` gives dev verdicts reproduced and mean |heat-load error| for A and B. No Streamlit, callable from a notebook:
+
+```python
+import orchestrator as O
+from loader import load_buildings
+rows = O.compare_logic(load_buildings(use_llm=False)); print(O.compare_summary(rows))
+```
+
+The Evaluation tab shows the same table behind the **"Compare logic"** toggle (only when a calculation module is available).
+
+**Try it.** `HP_MODULE_CALCULATION="my_pkg.my_model:run" streamlit run app.py` (the module must be importable from the app folder). Evaluation then shows the module's verdicts ("module calc" chip), "Other model outputs", "Why the model decided this", "Model: …" and "Reported by the model: …"; any contract warning appears as a grey line under the table.
+
+---
 
 The Streamlit app stays the UI. `orchestrator.py` calls three **Python** modules in-process with a JSON-shaped request (a `dict`) and gets a JSON-shaped reply back (decision 2026-10-24: Python only, no Node):
 
@@ -58,7 +127,7 @@ Says whether a photo is **usable**, not what it means: `usable`, `reason` (`ok` 
 - Test inputs: `data/pipe_photos/*` (labels in `labels.json`), plus any blurred/dark photo.
 
 ### calculation → `Result`
-Input `{"house": House}`. Output a full `Result`; this replaces `engine.py`'s `evaluate` + `installer_brief`.
+Input `{"house": House}`. Output a `Result`; this replaces `engine.py`'s `evaluate` + `installer_brief`. **v2:** only the §0 core is required; the list below is the v1 physics shape, still accepted and used when present.
 - The UI reads: `best_color`, `verdict_basis`, `boundary`, `reason`, `p_green/p_yellow/p_red`, `required_flow_temp_c`, `heat_load_kw`, `heat_load_bill_kw` (`{p10, p50, p90}`), `jaz_bucket`, `cost_now_eur`, `cost_hp_eur`, `saving_eur`, `contradictions`, `open_checks`, `trace`, `visit_type`, `parts`, `lead_score`, `next_step`, and the **structured** fields `options`, `radiators`, `flags`, `always_checks` (fill numbers and kinds; the UI writes the sentences).
 - Rules: CLAUDE.md "Engine" (fixed prices and JAZ, 55/60 °C bands, missing data → yellow `cannot_tell_yet`, never red).
 - Check against the Python engine: `contracts/examples/calc_output_B-04.json` / `B-05.json` are today's results for the same inputs.

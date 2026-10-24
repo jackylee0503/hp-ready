@@ -229,6 +229,8 @@ The app reads these `Result` fields; none may stay empty for a building with cor
 
 ## Structured output and safety nets
 
+**Contract v2 (`CONTRACT.md` §0).** Any logic that fills the v2 core (colour + probabilities, verdict_basis, reason, `quantities`, `explanations` or `trace`, `open_checks`, `model_info`) plugs in through `modules/calculation.py` or `HP_MODULE_CALCULATION`, physics or not. engine.py results are adapted with `schema.with_core(r, BASELINE_INFO)`; the structured fields below remain optional extras the UI uses when present. To compare a replacement with this engine: `orchestrator.compare_logic(load_buildings())` or Evaluation → "Compare logic".
+
 **Structured fields.** Fill numbers and kinds; the app writes the sentences (all in `schema.py`):
 `options` (list of `Option`: kind `radiators` / `insulation` / `pipe_loop` / `none`, `add_rated_kw_55/60`, `rated_kw_today`, `loss_cut_pct`), `radiators` (`RadiatorSummary`: count, `size_assumed`, `rated_kw`, `needed_rated_kw_55/60`, `share`, `margin_pct`), `flags` (list of `Flag`: one sentence `text`, `src`, `kind`; no "Check on site:" prefix, never an always-check), `always_checks` (checks done at every visit). Empty → the app falls back to the text fields.
 

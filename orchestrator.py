@@ -269,6 +269,128 @@ def calculate(h: House, n: int = 500, seed: int = 0) -> tuple[Result | None, str
         return None, "module", f"calculation: reply does not match Result ({type(e).__name__}: {str(e)[:200]})"
 
 
+# ---------------------------------------------------------------- contract v2 helpers (any logic; no Streamlit)
+
+BRIEF_FIELDS = ("visit_type", "parts", "installer_checklist", "next_step", "next_photo", "confidence", "lead_score")
+
+
+def _brief_empty(r: Result, f: str) -> bool:
+    v = getattr(r, f)
+    if f == "parts":
+        return v is None or (v.radiators_to_swap is None and v.valves is None and v.balancing is None
+                             and not v.radiators_note)
+    if f in ("confidence", "lead_score"):
+        return not v
+    return v in (None, [], "")
+
+
+def fill_installer_brief(h: House, r: Result) -> tuple[Result, bool]:
+    """Fill the installer fields a logic left empty (visit_type, parts, installer_checklist, next_step, next_photo,
+    confidence, lead_score) from the baseline engine.installer_brief (fallback engine_tracer), run on a copy.
+    Never overwrites a field the logic filled. → (result, used_baseline). Never raises."""
+    try:
+        empty = [f for f in BRIEF_FIELDS if _brief_empty(r, f)]
+        if not empty or not any(f in empty for f in ("visit_type", "parts", "installer_checklist", "next_step")):
+            return r, False
+        from schema import Range, quantity
+        tmp = r.model_copy(deep=True)
+        if "traffic_light" not in r.model_fields_set:      # not in the v2 core: derive it for the baseline brief only
+            tmp.traffic_light = "unclear" if r.verdict_basis == "cannot_tell_yet" else r.best_color
+        for key, field in (("flow_temp_c", "required_flow_temp_c"), ("heat_load_kw", "heat_load_kw"),
+                           ("heat_load_bill_kw", "heat_load_bill_kw")):
+            q = quantity(r, key)                # the baseline brief reads the legacy ranges: hand it the logic's numbers
+            if getattr(tmp, field).p50 is None and q is not None:
+                setattr(tmp, field, Range(p10=q.p10, p50=q.p50, p90=q.p90))
+    except Exception:
+        return r, False
+    for name in ("engine", "engine_tracer"):
+        try:
+            b = importlib.import_module(name).installer_brief(h, tmp)
+            out = r.model_copy(deep=True)
+            for f in empty:
+                setattr(out, f, getattr(b, f))
+            return out, True
+        except Exception:
+            continue
+    return r, False
+
+
+def baseline(h: House) -> tuple[Result | None, str | None]:
+    """The baseline logic: engine.py evaluate + installer_brief (fallback engine_tracer), adapted to contract v2."""
+    from schema import BASELINE_INFO, with_core
+    err = None
+    for name in ("engine", "engine_tracer"):
+        try:
+            mod = importlib.import_module(name)
+            r = mod.evaluate(h)
+            if hasattr(mod, "installer_brief"):
+                r = mod.installer_brief(h, r)
+            if not isinstance(r, Result):
+                r = Result.model_validate(r if isinstance(r, dict) else r.model_dump())
+            info = BASELINE_INFO if name == "engine" else BASELINE_INFO.model_copy(update={"version": "engine_tracer.py"})
+            return with_core(r, info), None
+        except Exception as e:
+            err = f"{name}: {type(e).__name__}: {e}"
+    return None, err
+
+
+def _q50(r: Result | None, key: str):
+    if r is None:
+        return None
+    from schema import quantity
+    q = quantity(r, key)
+    if q is None and key.endswith("_eur"):
+        return getattr(r, key, None)
+    return None if q is None else q.p50
+
+
+def _err_pct(v, ref):
+    return None if v is None or not ref else round((v - ref) / ref * 100, 1)
+
+
+def compare_logic(buildings) -> list[dict]:
+    """A/B for the paper: A = baseline (engine.py), B = the calculation module; one dict per building.
+    `buildings` = loader.load_buildings() → [(id, House, reference | None)]. B columns are None when no module is
+    available (b_error says why). Keys: building_id, dev, ref_verdict, ref_load_kw, {a,b}_color, {a,b}_p_green,
+    {a,b}_flow_c, flow_delta, {a,b}_load_kw, load_delta, {a,b}_load_err_pct (vs reference, dev only),
+    {a,b}_hit (verdict == reference, dev only), {a,b}_model, {a,b}_error. Deterministic (seed 0), no Streamlit."""
+    rows = []
+    use_b = available("calculation")
+    for bid, h, ref in buildings:
+        a, a_err = baseline(h)
+        b, b_err = None, "calculation not available"
+        if use_b:
+            b, _, b_err = calculate(h)
+        ref = ref or {}
+        rv, rl = ref.get("verdict"), ref.get("heating_load_kw")
+        row = {"building_id": str(bid), "dev": bool(rv or rl), "ref_verdict": rv, "ref_load_kw": rl}
+        for tag, r, e in (("a", a, a_err), ("b", b, b_err)):
+            row[f"{tag}_color"] = r.best_color if r else None
+            row[f"{tag}_p_green"] = round(r.p_green, 3) if r else None
+            row[f"{tag}_flow_c"] = _q50(r, "flow_temp_c")
+            row[f"{tag}_load_kw"] = _q50(r, "heat_load_kw")
+            row[f"{tag}_load_err_pct"] = _err_pct(row[f"{tag}_load_kw"], rl)
+            row[f"{tag}_hit"] = (r.best_color == rv) if (r is not None and rv) else None
+            row[f"{tag}_model"] = r.model_info.name if r is not None and r.model_info else None
+            row[f"{tag}_error"] = None if r is not None else e
+        for k, unit in (("flow", "c"), ("load", "kw")):
+            va, vb = row[f"a_{k}_{unit}"], row[f"b_{k}_{unit}"]
+            row[f"{k}_delta"] = None if va is None or vb is None else round(vb - va, 2)
+        rows.append(row)
+    return rows
+
+
+def compare_summary(rows: list[dict]) -> dict:
+    """Measured from compare_logic rows: dev verdicts reproduced and mean |heat-load error| vs reference, A and B."""
+    out = {"n_dev": sum(1 for r in rows if r["dev"])}
+    for tag in ("a", "b"):
+        hits = [r[f"{tag}_hit"] for r in rows if r["dev"] and r[f"{tag}_hit"] is not None]
+        errs = [abs(r[f"{tag}_load_err_pct"]) for r in rows if r[f"{tag}_load_err_pct"] is not None]
+        out[f"{tag}_hits"], out[f"{tag}_n"] = sum(hits), len(hits)
+        out[f"{tag}_mae_pct"] = round(sum(errs) / len(errs), 1) if errs else None
+    return out
+
+
 if __name__ == "__main__":                    # python orchestrator.py → status of the three modules
     print("HP_MODULES:", modules_enabled(), "| HP_MODULES_ONLY:", modules_only())
     for m in REGISTRY:

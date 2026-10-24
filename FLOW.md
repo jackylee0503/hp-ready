@@ -89,6 +89,8 @@ Line numbers move; search for the `# ---- step` comments in `engine.py`.
 
 ## 4. Replacing the engine
 
+**Any logic (contract v2, `CONTRACT.md` §0).** The decision logic does not have to be physics: a module that returns only the v2 core (colour + probabilities, verdict_basis, reason, `quantities`, `explanations` or `trace`, `open_checks`, `model_info`) renders in every tab. The UI reads numbers through `schema.quantity(r, key)`, shows unknown quantity keys as "Other model outputs", explanations as "Why the model decided this", `model_info` as "Model: …", and fills empty installer fields from the baseline `installer_brief` (marked "installer brief from baseline"). Evaluation → "Compare logic" (`orchestrator.compare_logic`) puts the baseline and the module side by side. The physics fields below are optional extras.
+
 The app only needs these, so you can rewrite everything inside `engine.py`:
 
 ```python
