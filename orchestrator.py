@@ -30,9 +30,11 @@ from pathlib import Path
 from schema import BillObs, House, RadiatorObs, Result
 
 ROOT = Path(__file__).parent
+# calculation → modules/screening.py (2026-10-24): engine.py + best/worst-case bounds; it hands every request to the
+# ML team's modules/calculation.py as soon as that one is implemented (IMPLEMENTED = True), so their switch still works.
 REGISTRY = {"bill_recognizer": "modules.bill_recognizer:run",
             "pipe_classifier": "modules.pipe_classifier:run",
-            "calculation": "modules.calculation:run"}
+            "calculation": "modules.screening:run"}
 LIMIT_S = {"pipe_classifier": 10, "bill_recognizer": 15, "calculation": 20}     # CONTRACT.md §1 (warning only)
 VERSION = "1-draft"
 EXT = {"application/pdf": ".pdf", "image/jpeg": ".jpg", "image/jpg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
@@ -157,6 +159,8 @@ def cache_tag() -> str:
         if not f:                                # not imported yet: guess the file from the dotted name
             f = ROOT / (s.split(":")[0].replace(".", "/") + ".py")
         parts.append(f"{n}={s}@{_mtime(f)}")
+    # a registered module may hand over to another file in modules/ (screening → calculation): watch them all
+    parts.append("modules=" + ",".join(f"{p.name}@{_mtime(p)}" for p in sorted((ROOT / "modules").glob("*.py"))))
     return "|".join(parts) + f"|on={modules_enabled()}|only={modules_only()}"
 
 
