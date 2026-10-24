@@ -1638,7 +1638,7 @@ def run_example_reads():
 def example_gallery():
     """Page 1: 'Try an example house' cards; the chosen one shows as selected, 'Start empty' clears everything."""
     ss = st.session_state
-    st.markdown("**Try an example house**")
+    st.markdown("**Or try an example house**")
     cols = st.columns(len(EXAMPLES))
     for col, (key, ex) in zip(cols, EXAMPLES.items()):
         sel = ss.get("example") == key
@@ -1692,7 +1692,6 @@ def form_page(h: House):
     html('<p style="font-size:16px;margin:0 0 4px">If you don\'t know everything, it\'s okay.</p>'
          '<p class="muted" style="margin:0 0 12px">Fill in what you know and leave the rest empty. '
          '<b>*</b> marks what matters most for the answer.</p>')
-    example_gallery()
     rows = sorted(form_rows(ss.form.get("fuel_type")), key=lambda r: FORM_GROUPS.index(GROUP_OF[r[0]]))
     group = None
     for f, label, opts, _ in rows:
@@ -1723,6 +1722,8 @@ def form_page(h: House):
             tag = f"{src_label(src)} · {value_text(h, f)}"
         if tag:
             html(f'<span class="src">{esc(tag)}</span>', c3)
+    st.divider()
+    example_gallery()                            # below the form: the form is the main path, examples are a shortcut
 
 
 def home_house() -> House:
@@ -2173,7 +2174,7 @@ def request_panel(h: House, r: Result, key: str):
     body = (f"Hello,\n\nplease find my pre-visit sheet attached (HP-Ready first estimate: {r.best_color}, "
             f"{about_t(qr(r, 'flow_temp_c').p50)}).\n\n{name}\n{contact}\n{plz}")
     st.link_button("Open as e-mail", mailto(request_subject(r), body), type="primary", width="stretch")
-    st.caption("One page any installer reads in a minute. Nothing is stored.")
+    st.caption("We open an e-mail you can send to any installer. Nothing is stored.")
 
 # ---------------------------------------------------------------- installer
 
