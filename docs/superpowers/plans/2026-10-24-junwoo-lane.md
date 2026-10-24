@@ -12,7 +12,7 @@
 
 **Branches (see `docs/TEAM_GIT.md`):** Task 0 lands on `main`; Tasks 1-9 are committed on `junwoo/loader` (`git push` there) and merged into `main` every 1-2 hours after `git pull origin main` and a run check. `schema.py` edits always go straight to `main`.
 
-**Contract with the engine owner (`potatohater8`):** `engine.evaluate(h: House, p=DEFAULT, n=500, seed=0) -> Result`, `engine.installer_brief(h, r) -> Result`, optional `engine.next_question(h) -> str | None`, optional `engine.handover_pdf(h, r, contact) -> bytes`, `calibrate.leave_one_out(buildings) -> DataFrame` with columns `building_id`, `error_pct`. Fuel input for the engine: `annual_fuel_kwh` if present, else the raw bill fields (`kwh_printed`, `m3`, `zustandszahl`, `brennwert`, `liters`/`annual_fuel_liters`, `monthly_advance_eur`) which the engine converts (step 1). `House.conflicts` lists source disagreements the engine may turn into contradictions.
+**Contract with the engine owner (`potatohater8`):** `engine.evaluate(h: House, p=DEFAULT, n=500, seed=0) -> Result`, `engine.installer_brief(h, r) -> Result`, optional `engine.next_question(h) -> str | None`, optional `engine.handover_pdf(h, r, contact) -> bytes`, `calibrate.leave_one_out(buildings) -> DataFrame` with columns `building_id`, `error_pct`. Fuel precedence in the engine (CLAUDE.md step 1): bill raw values (`kwh_printed`, `m3`, `zustandszahl`, `brennwert`, `liters`, period) → `annual_fuel_kwh` → `annual_fuel_liters` × 10 → `monthly_advance_eur`; `annual_*` hold only per-year values from data or text, never a bill's printed kWh. `House.conflicts` lists source disagreements the engine may turn into contradictions.
 
 ---
 
@@ -632,8 +632,7 @@ def obs_to_house(kind: str, obs) -> House:
         for f in ("kwh_printed", "m3", "zustandszahl", "brennwert", "liters", "period_start", "period_end",
                   "bill_carrier", "bill_total_eur", "monthly_advance_eur"):
             put(f, d[f])
-        put("fuel_type", fuel_from(d["bill_carrier"], None), "bill_carrier")
-        put("annual_fuel_kwh", d["kwh_printed"], "kwh_printed")   # raw printed value; engine scales the period
+        put("fuel_type", fuel_from(d["bill_carrier"], None), "bill_carrier")   # raw values stay raw: engine step 1
     elif kind == "listing":
         for f in ("build_year", "living_area_m2", "rooms", "building_type", "fuel_type", "certificate_kwh_m2a",
                   "certificate_area_m2"):
@@ -755,7 +754,7 @@ m=X.merge(X.merge(X.House(), t), b)
 print(m.fuel_type, m.source['fuel_type'], m.build_year, m.source['build_year'])
 print(m.conflicts)"
 ```
-Expected: `gas bill 1985 text` and a conflict `{'field': 'fuel_type', 'values': {'text': 'oil', 'bill': 'gas'}, 'used': 'bill'}` (a second conflict on `annual_fuel_kwh` only if the text gave a number).
+Expected: `gas bill 1985 text` and a conflict `{'field': 'fuel_type', 'values': {'text': 'oil', 'bill': 'gas'}, 'used': 'bill'}`.
 
 - [ ] **Step 3: Commit**
 

@@ -101,6 +101,8 @@ First thing on the day: get the submission deadline and pitch slot. Build time =
 
 ## Interface contract
 
+Field names in `schema.py` are frozen (2026-10-24): no renames; new fields only through Junwoo, pushed straight to `main`. The engine owner gets the list of `Result` fields the UI reads (plan Task 9) and must fill them.
+
 ```python
 # schema.py
 class House(BaseModel):                      # all value fields Optional
@@ -201,7 +203,7 @@ Demo inputs with expected values: `assets/demo/README.md`.
 
 **0. Site flags are not red reasons.** Listed building, no outdoor-unit space, flat-level gas heating: keep the physics colour, add to `site_flags`, put at the top of the installer checklist, cap green at yellow. Red only if a mentor or the data says it is a hard stop.
 
-**1. Fuel to heat (cost and cross-check).** Organiser method (`03_technical_guardrails.md` §1b). Bill conversion is done here, never by the LLM: `kwh_printed`, else `m3 × zustandszahl × brennwert` (either factor missing → `m3 × 10`, organiser value), oil `litres × 10`, scaled to 365 days. Advance payment only: `monthly × 12 / price`, range −30 %..+10 %, low confidence.
+**1. Fuel to heat (cost and cross-check).** Organiser method (`03_technical_guardrails.md` §1b). **Fuel precedence:** bill raw values (when any is present) → `annual_fuel_kwh` → `annual_fuel_liters × 10` → advance payment. `annual_fuel_kwh` / `annual_fuel_liters` only ever hold values stated per year (data, homeowner text); a bill's printed kWh stays in `kwh_printed`. Bill conversion is done here, never by the LLM: `kwh_printed`, else `m3 × zustandszahl × brennwert` (either factor missing → `m3 × 10`, organiser value), oil `litres × 10`, scaled to 365 days. Advance payment only: `monthly × 12 / price`, range −30 %..+10 %, low confidence.
 `Q_heat = annual_fuel_kwh × η` (useful heat). **η = 0.88 by default** (organiser: the old boiler loses about 12 %), so our numbers stay comparable with every other team. Only when the boiler type is known (stated in the text, or a photo): gas condensing 0.88 / non-condensing 0.80, oil condensing 0.95 / non-condensing 0.85 (Hs/Hi basis, say so in the Rechenweg). LPG like gas, note "real LPG price may be higher". District heating and direct electric: η 1.0, current cost "price not provided".
 `Q_space = Q_heat − Q_dhw`, `Q_dhw = 1,000 kWh × occupants` (organiser) if `dhw_by_boiler`, halved with solar thermal (our assumption, label it).
 Bill-based heating load `heat_load_bill_kw` = `Q_space / 2,000 h`, low/high `Q_space / 2,100` .. `Q_space / 1,800` (organiser: realistic 1,800-2,100 full-load hours).

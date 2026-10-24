@@ -23,6 +23,7 @@ RadiatorSize = Literal["small", "medium", "large"]
 BuildingType = Literal["detached", "semi_detached", "terraced", "apartment"]
 ExtraHeat = Literal["wood_stove", "tiled_stove", "heat_pump", "none"]
 VisitType = Literal["remote_quote", "visit_with_parts", "hold"]
+JazBucket = Literal["underfloor", "le55", "55to60", "gt60"]
 Source = Literal["data", "text", "photo", "bill", "listing", "confirmed",
                  "notes_llm", "rule", "prior"]
 MissingReason = Literal["not_visible", "blurry", "ambiguous", "wrong_object"]
@@ -192,10 +193,11 @@ class House(BaseModel):
     region: Optional[str] = None
     rooms: Optional[int] = None
     occupants: Optional[int] = None
-    # energy
+    # energy. Fuel precedence for the engine (step 1): bill raw values below → annual_fuel_kwh
+    # → annual_fuel_liters × 10 → monthly_advance_eur. annual_* hold only values stated per year (data, text).
     fuel_type: Optional[FuelType] = None
-    annual_fuel_kwh: Optional[float] = None
-    annual_fuel_liters: Optional[float] = None
+    annual_fuel_kwh: Optional[float] = None    # stated per year; never a bill's printed kWh
+    annual_fuel_liters: Optional[float] = None # stated per year (oil)
     monthly_advance_eur: Optional[float] = None
     boiler_condensing: Optional[bool] = None
     dhw_by_boiler: Optional[bool] = None
@@ -214,7 +216,7 @@ class House(BaseModel):
     listed_building: Optional[bool] = None
     outdoor_unit_space: Optional[bool] = None
     flat_level_gas_heating: Optional[bool] = None
-    # bill raw values
+    # bill raw values, as printed for the bill period; the engine converts and scales to 365 days
     kwh_printed: Optional[float] = None
     m3: Optional[float] = None
     zustandszahl: Optional[float] = None
@@ -316,7 +318,7 @@ class Result(BaseModel):
     heat_load_kw: Range = Range()
     heat_load_bill_kw: Range = Range()          # low / mid / high over 2100 / 2000 / 1800 h
     specific_load_w_m2: Optional[float] = None
-    jaz_bucket: Optional[str] = None            # "underfloor" | "le55" | "55to60" | "gt60"
+    jaz_bucket: Optional[JazBucket] = None
     path_to_yellow: list[str] = []
     # cost (fixed challenge prices only)
     cost_now_eur: Optional[float] = None
