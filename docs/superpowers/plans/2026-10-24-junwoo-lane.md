@@ -10,6 +10,8 @@
 
 **Project rules that override the skill defaults:** no test files (CLAUDE.md "Do not: test code"), so every task is verified with an exact `python -c` / `python file.py` command and its expected output; create no code files beyond CLAUDE.md "Files"; commit only named files, never `git add -A`; talk to Junwoo in Korean.
 
+**Branches (see `docs/TEAM_GIT.md`):** Task 0 lands on `main`; Tasks 1-9 are committed on `junwoo/loader` (`git push` there) and merged into `main` every 1-2 hours after `git pull origin main` and a run check. `schema.py` edits always go straight to `main`.
+
 **Contract with the engine owner (`potatohater8`):** `engine.evaluate(h: House, p=DEFAULT, n=500, seed=0) -> Result`, `engine.installer_brief(h, r) -> Result`, optional `engine.next_question(h) -> str | None`, optional `engine.handover_pdf(h, r, contact) -> bytes`, `calibrate.leave_one_out(buildings) -> DataFrame` with columns `building_id`, `error_pct`. Fuel input for the engine: `annual_fuel_kwh` if present, else the raw bill fields (`kwh_printed`, `m3`, `zustandszahl`, `brennwert`, `liters`/`annual_fuel_liters`, `monthly_advance_eur`) which the engine converts (step 1). `House.conflicts` lists source disagreements the engine may turn into contradictions.
 
 ---

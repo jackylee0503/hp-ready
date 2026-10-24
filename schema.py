@@ -236,6 +236,8 @@ class House(BaseModel):
     source: dict[str, Source] = {}             # field -> where it came from
     evidence: dict[str, str] = {}              # field -> quote / image note
     missing: dict[str, MissingReason] = {}
+    retake_tip: Optional[str] = None           # one concrete tip when a photo was unreadable
+    conflicts: list[dict] = []                 # {field, values: {source: value}, used: source} from merge
 
 
 # ---------------------------------------------------------------- Params (engine knobs)
