@@ -2118,3 +2118,22 @@ with t_eval:
     tab_evaluation()
 with t_inst:
     tab_installer()
+
+
+def _build_id() -> str:
+    """Short commit of the running code, read from .git without calling git (works on Streamlit Cloud)."""
+    try:
+        head = (ROOT / ".git" / "HEAD").read_text(encoding="utf-8").strip()
+        if head.startswith("ref: "):
+            ref = head[5:]
+            p = ROOT / ".git" / ref
+            if p.exists():
+                return p.read_text(encoding="utf-8").strip()[:7]
+            packed = (ROOT / ".git" / "packed-refs").read_text(encoding="utf-8")
+            return next((ln.split()[0][:7] for ln in packed.splitlines() if ln.endswith(" " + ref)), "?")
+        return head[:7]
+    except Exception:
+        return "?"
+
+
+st.caption(f"build {_build_id()}")
