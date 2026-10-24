@@ -1474,6 +1474,13 @@ FORM = [  # (field, label, options | NUM (min, max, step, unit), value -> text)
     ("radiator_size", "Radiator size", ["small", "medium", "large"], "{}"),
     ("dhw_by_boiler", "Hot water from the boiler", ["yes", "no"], "{}"),
 ]
+# Page-1 sections, in this order (the form is long; headers make it scannable).
+FORM_GROUPS = ["The building", "Heating", "Radiators", "People and rooms"]
+GROUP_OF = {"build_year": "The building", "living_area_m2": "The building", "building_type": "The building",
+            "renovation": "The building", "heat_distribution": "Heating", "fuel_type": "Heating",
+            "annual_fuel_kwh": "Heating", "annual_fuel_liters": "Heating", "dhw_by_boiler": "Heating",
+            "radiator_count": "Radiators", "radiator_size": "Radiators",
+            "occupants": "People and rooms", "rooms": "People and rooms"}
 # Fields that move the colour most (engine: load = area × W/m²(year, renovation); flow temperature from radiators).
 IMPORTANT = {"build_year", "living_area_m2", "heat_distribution", "renovation", "radiator_count", "radiator_size"}
 FORM_EXAMPLE = {"build_year": 1972, "living_area_m2": 140, "building_type": "terraced", "renovation": "partially",
@@ -1639,9 +1646,9 @@ def example_gallery():
             html('<div style="display:flex;justify-content:space-between;align-items:center;gap:6px">'
                  '<span class="pill">Example</span>'
                  + ('<span class="ok">✓ Selected</span>' if sel else "") + '</div>'
-                 f'<div style="font-weight:700;font-size:15px;margin:8px 0 2px">{esc(ex["name"])}</div>'
-                 f'<div class="muted" style="font-size:13px">{esc(ex["place"])} · {esc(ex["year"])}</div>'
-                 f'<div style="font-size:13px;margin-top:6px;min-height:38px">{esc(ex["line"])}</div>')
+                 f'<div style="font-weight:700;font-size:15px;margin:8px 0 2px;min-height:40px">{esc(ex["name"])}</div>'
+                 f'<div class="muted" style="font-size:13px;min-height:36px">{esc(ex["place"])} · {esc(ex["year"])}</div>'
+                 f'<div style="font-size:13px;margin-top:6px;min-height:58px">{esc(ex["line"])}</div>')
             st.button("Selected" if sel else "Use this house", key=f"exbtn_{key}", on_click=pick_example, args=(key,),
                       type="primary" if sel else "secondary", width="stretch")
     c1, c2 = st.columns([1, 3])
@@ -1686,7 +1693,13 @@ def form_page(h: House):
          '<p class="muted" style="margin:0 0 12px">Fill in what you know and leave the rest empty. '
          '<b>*</b> marks what matters most for the answer.</p>')
     example_gallery()
-    for f, label, opts, _ in form_rows(ss.form.get("fuel_type")):
+    rows = sorted(form_rows(ss.form.get("fuel_type")), key=lambda r: FORM_GROUPS.index(GROUP_OF[r[0]]))
+    group = None
+    for f, label, opts, _ in rows:
+        if GROUP_OF[f] != group:                 # small section header: the building · heating · radiators · people
+            group = GROUP_OF[f]
+            html(f'<div style="font-size:13px;font-weight:600;color:#4A5565;text-transform:uppercase;'
+                 f'letter-spacing:.04em;margin:18px 0 4px">{esc(group)}</div>')
         key = f"pf_{f}"
         num = isinstance(opts, tuple)
         if key not in ss:                        # seed once from the stored answers (widget state is dropped off-page)
@@ -1704,13 +1717,12 @@ def form_page(h: House):
         src, v = h.source.get(f), getattr(h, f)
         if f in needs_answer(h):
             tag = "⚠ asked on page 4"
-        elif v is None:
-            tag = "—"
-        elif src == FORM_MERGE_SRC:
-            tag = "form"
+        elif v is None or src == FORM_MERGE_SRC:
+            tag = ""                             # nothing to say: an empty pill looked like a button
         else:                                    # filled (or overruled) by the bill, photo, text or a conflict answer
             tag = f"{src_label(src)} · {value_text(h, f)}"
-        html(f'<span class="src">{esc(tag)}</span>', c3)
+        if tag:
+            html(f'<span class="src">{esc(tag)}</span>', c3)
 
 
 def home_house() -> House:
