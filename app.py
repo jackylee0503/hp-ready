@@ -1,7 +1,9 @@
-"""HP-Ready. Tabs Homeowner / Evaluation / Installer. Layout and copy: docs/design/. The app never computes physics."""
+"""HP-Ready. Tabs Homeowner / Evaluation (Installer only with HP_SHOW_INSTALLER=1). Layout and copy: docs/design/.
+The app never computes physics. It renders any `calculation` result that fills the MVP core (CONTRACT.md "MVP")."""
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import urllib.parse
 from datetime import date
@@ -155,13 +157,14 @@ def _run(house_json: str, eng_key: str) -> dict:
     if O.available("calculation"):
         r, _, mod_err = O.calculate(h)
         if r is not None:
+            given = sorted(r.model_fields_set)       # what the module actually returned (MVP core may be all)
             brief = False
             try:                                 # installer fields the module left empty → baseline brief (never overwrites)
                 r, brief = O.fill_installer_brief(h, r)
             except Exception:
                 pass
             return {"result": r.model_dump_json(), "engine": "module", "error": None, "module_error": None,
-                    "brief": "baseline" if brief else None}
+                    "brief": "baseline" if brief else None, "given": given}
     err = f"import failed ({ENGINE_ERR})" if engine is None else None
     if engine is not None:
         try:
@@ -193,10 +196,10 @@ def evaluate(h: House, quiet: bool = False) -> Result | None:
                     else BASELINE_INFO
             r = with_core(r, info)
         else:                                          # a module: labels/units for its quantities, no default model_info
-            r = with_core(r)
+            r = mvp_defaults(with_core(r), out.get("given"))
         ENGINE_ERRS.pop(bid, None)
         ENGINE_USED[bid] = {"engine": out["engine"], "error": out["error"], "module_error": out.get("module_error"),
-                            "brief": out.get("brief")}
+                            "brief": out.get("brief"), "given": out.get("given")}
         return r
     except Exception as e:
         ENGINE_ERRS[bid] = str(e)
@@ -204,6 +207,45 @@ def evaluate(h: House, quiet: bool = False) -> Result | None:
         if not quiet:
             st.caption(f"Engine error for {h.building_id}: {e}")
         return None
+
+
+VERDICT_WORD = {"green": "likely suitable", "yellow": "workable, some checks remain", "red": "not without changes"}
+
+
+def neutral_reason(r: Result) -> str:
+    """One plain sentence from colour + flow temperature, for a logic that sent no `reason` (MVP core only)."""
+    fl = qr(r, "flow_temp_c").p50
+    word = VERDICT_WORD.get(r.best_color, "")
+    if fl is None:
+        return f"{word[:1].upper()}{word[1:]}." if word else ""
+    temp = "More than 70 °C" if fl > 70 else f"About {fl:.0f} °C"
+    return f"{temp} on the coldest day: {word}."
+
+
+def mvp_defaults(r: Result, given: list | None) -> Result:
+    """A module that returned only the MVP core: derive the display-only fields it left out (never overwrites)."""
+    if given is None:
+        return r
+    given = set(given)
+    if "verdict_basis" not in given:
+        r.verdict_basis = {"green": "likely_suitable", "yellow": "checks_remain"}.get(r.best_color, "checks_remain")
+    if "traffic_light" not in given:
+        r.traffic_light = r.best_color
+    if not r.reason:
+        r.reason = neutral_reason(r)
+    return r
+
+
+def given_by_logic(bid, field: str) -> bool:
+    """False only when a module produced this building's result and left `field` out (hide that section)."""
+    key = "Homeowner" if bid == "Homeowner house" else str(bid)
+    u = ENGINE_USED.get(key) or {}
+    return u.get("engine") != "module" or u.get("given") is None or field in u["given"]
+
+
+def show_installer() -> bool:
+    """The Installer tab is out of the MVP; HP_SHOW_INSTALLER=1 brings it back (code kept)."""
+    return os.environ.get("HP_SHOW_INSTALLER", "0").strip().lower() in ("1", "true", "yes", "on")
 
 
 def engine_used(bid) -> str | None:
@@ -229,7 +271,7 @@ def brief_from_baseline(bid) -> bool:
 def model_line(r: Result, extra: str = "") -> str:
     """Small muted 'Model: name · version · kind' line from r.model_info (contract v2). '' when nothing to say."""
     mi = r.model_info
-    parts = [p for p in ((mi.name, mi.version, mi.kind) if mi is not None else ("unknown",)) if p]
+    parts = [p for p in ((mi.name, mi.version, mi.kind) if mi is not None else ()) if p]
     if extra:
         parts.append(extra)
     return (f'<div style="font-size:12px;color:var(--muted)">Model: {esc(" · ".join(parts))}</div>' if parts else "")
@@ -671,8 +713,8 @@ def _band_text(h: House | None, s: str | None) -> str | None:
 
 def rechenweg(r: Result, h: House | None = None):
     b = qr(r, 'heat_load_bill_kw')
-    st.markdown(f"Heating load (size, age): **{t_range(qr(r, 'heat_load_kw'), kw)}**  \n"
-                f"From the bill: {t_range(b, kw)}")
+    st.markdown(f"Heating load (size, age): **{t_range(qr(r, 'heat_load_kw'), kw)}**"
+                + (f"  \nFrom the bill: {t_range(b, kw)}" if b.p50 is not None else ""))
     if r.trace:
         rows = [{k: _band_text(h, v) if isinstance(v, str) else v for k, v in s.model_dump().items()} for s in r.trace]
         st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
@@ -696,16 +738,21 @@ def answer_card(h: House, r: Result | None, key: str):
     with st.expander(f"How sure · {top[1]:.0%} {top[0]}"):
         html(prob_bar(r))
         st.caption(f"Green {r.p_green:.0%} · Yellow {r.p_yellow:.0%} · Red {r.p_red:.0%}")
-    with st.expander(f"Water temperature · ≈ {t(qr(r, 'flow_temp_c').p50)}"):
-        html(scale(r))
-        rg = qr(r, 'flow_temp_c')
-        st.caption((f"Likely {t(rg.p10)}–{t(rg.p90)}. " if rg.p10 is not None and rg.p90 is not None else "")
-                   + "Lower is cheaper.")
-    with st.expander("Running cost" + (f" · save ~{eur(qv(r, 'saving_eur'))}/yr" if qv(r, 'saving_eur') and qv(r, 'saving_eur') > 0 else "")):
-        st.markdown(f"Today **{eur(qv(r, 'cost_now_eur'))}** · heat pump **{eur(qv(r, 'cost_hp_eur'))}**")
-        if r.cost_note:
-            st.caption(r.cost_note)
-        st.caption("Challenge prices. Installation and subsidies come with the quote.")
+    rg = qr(r, 'flow_temp_c')
+    if rg.p50 is not None:
+        with st.expander(f"Water temperature · ≈ {t(rg.p50)}"):
+            html(scale(r))
+            st.caption((f"Likely {t(rg.p10)}–{t(rg.p90)}. " if rg.p10 is not None and rg.p90 is not None else "")
+                       + "Lower is cheaper.")
+    if qv(r, 'cost_now_eur') is not None or qv(r, 'cost_hp_eur') is not None:    # optional extra: hide when absent
+        sv = qv(r, 'saving_eur')
+        with st.expander("Running cost" + (f" · save ~{eur(sv)}/yr" if sv and sv > 0 else "")):
+            st.markdown(" · ".join(x for x in (
+                f"Today **{eur(qv(r, 'cost_now_eur'))}**" if qv(r, 'cost_now_eur') is not None else "",
+                f"heat pump **{eur(qv(r, 'cost_hp_eur'))}**" if qv(r, 'cost_hp_eur') is not None else "") if x))
+            if r.cost_note:
+                st.caption(r.cost_note)
+            st.caption("Challenge prices. Installation and subsidies come with the quote.")
     if r.open_checks:
         n = len(r.open_checks)
         with st.expander(f"What's still open · {n} thing{'s' if n != 1 else ''}"):
@@ -756,7 +803,46 @@ def _top_color(r: Result) -> tuple[str, float]:
     return max((("green", r.p_green), ("yellow", r.p_yellow), ("red", r.p_red)), key=lambda x: x[1])
 
 
-def eval_kpis(B, dev) -> str:
+RED_RISK = 0.30                                  # R % at or above this is shown bold red (Evaluation)
+
+
+def gyr_text(r: Result) -> str:
+    """'G 51 % · Y 18 % · R 31 %' (HTML), red share bold red when it is a real risk."""
+    rr = f"R {pct(r.p_red)}"
+    if r.p_red >= RED_RISK:
+        rr = f'<b style="color:var(--r-tx)">{rr}</b>'
+    return f"G {pct(r.p_green)} · Y {pct(r.p_yellow)} · {rr}"
+
+
+def red_risk_cell(r: Result) -> str:
+    """Red-risk column: filled red pill when the verdict is red, else R % (bold red at ≥ 30 %, muted below)."""
+    if r.best_color == "red":
+        return pill("red", f"Red · {pct(r.p_red)}", filled=True)
+    if r.p_red >= RED_RISK:
+        return (f'<span class="num" style="font-weight:700;color:var(--r-tx)">{pct(r.p_red)}</span>'
+                '<span class="ev-sub">real red risk</span>')
+    return f'<span class="num" style="color:var(--muted)">{pct(r.p_red)}</span>'
+
+
+def red_calls_card(res) -> str:
+    """KPI: how many buildings are red, and for dev buildings whether 'red or not' matches the reference."""
+    got = [(bid, ref, r) for bid, _, ref, r in res if r is not None]
+    reds = [bid for bid, _, r in got if r.best_color == "red"]
+    risky = [bid for bid, _, r in got if r.best_color != "red" and r.p_red >= RED_RISK]
+    dev = [(bid, ref, r) for bid, ref, r in got if ref and ref.get("verdict")]
+    match = sum((r.best_color == "red") == (ref["verdict"] == "red") for _, ref, r in dev)
+    chips_ = "".join(pill("red", f"{esc(str(b))} Red", filled=True) for b in reds)
+    chips_ += "".join(pill("red", f"{esc(str(b))} R {pct(r.p_red)}") for b, _, r in got if b in risky)
+    lines = [f'<div style="display:flex;gap:8px;flex-wrap:wrap">{chips_}</div>' if chips_ else ""]
+    if dev:
+        lines.append(f'<div style="font-size:13px;color:var(--ink)">Dev buildings: red / not red matches the reference '
+                     f'<b class="num">{match} / {len(dev)}</b></div>')
+    lines.append(f'<div style="font-size:12px;color:var(--muted)">Pale chips: not red, but red risk ≥ {pct(RED_RISK)}.</div>'
+                 if risky else "")
+    return kpi_card("Red calls", f"{len(reds)} / {len(got)}", "".join(lines), aside="buildings red")
+
+
+def eval_kpis(B, dev, res=()) -> str:
     ok = sum(r.best_color == ref["verdict"] for _, ref, r in dev)
     chips_ = []
     for bid, ref, r in dev:
@@ -766,6 +852,7 @@ def eval_kpis(B, dev) -> str:
                            else f"{bid} {r.best_color.capitalize()} ✗ (ref {ref['verdict'].capitalize()})"))
     c1 = kpi_card("Dev verdicts reproduced", f"{ok} / {len(dev)}",
                   f'<div style="display:flex;gap:8px;flex-wrap:wrap">{"".join(chips_)}</div>')
+    red = red_calls_card(res)
     info = next((r.model_info for _, _, r in dev if r.model_info is not None), None)
     reported = ""
     if info is not None and info.metrics:                # self-reported (invariant 8): labelled, never mixed with measured
@@ -788,8 +875,8 @@ def eval_kpis(B, dev) -> str:
         name = info.name if info is not None and info.name else "Calculation module"
         c3 = kpi_card("Model", esc(name), reported or '<div style="font-size:13px;color:var(--muted)">No metrics reported '
                       'by the model.</div>', aside=esc(info.kind) if info is not None else "")
-        return ('<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px">'
-                f'{c1}{c2}{c3}</div>')
+        return ('<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px">'
+                f'{c1}{red}{c2}{c3}</div>')
     try:
         import calibrate
         loo = calibrate.leave_one_out(B)
@@ -816,21 +903,24 @@ def eval_kpis(B, dev) -> str:
     else:
         c2 = kpi_card("Heat-load error · leave-one-out", "–")
         c3 = kpi_card("Calibration", f"k = {k:.2f}", reported, aside="1 tuned number")
-    return ('<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px">'
-            f'{c1}{c2}{c3}</div>')
+    return ('<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px">'
+            f'{c1}{red}{c2}{c3}</div>')
 
 
 def eval_table(res, sel: str) -> str:
     legend = "".join(f'<span style="display:flex;align-items:center;gap:6px"><span style="width:10px;height:10px;'
                      f'border-radius:2px;background:var(--bar-{c[0]});display:block"></span>{c.capitalize()}</span>'
                      for c in ("green", "yellow", "red"))
-    heads = [("Building", ""), ("Verdict", ""), ("Confidence", "width:180px"), ("Flow temp", ""), ("Heat load", ""),
-             ("Flags", "text-align:right"), ("Next step", ""), ("Lead score", "width:120px")]
+    inst = show_installer()                      # Next step / Lead score are installer columns (out of the MVP)
+    heads = [("Building", ""), ("Verdict", ""), ("Green · Yellow · Red", "width:190px"), ("Red risk", ""),
+             ("Flow temp", ""), ("Heat load", ""), ("Flags", "text-align:right")]
+    if inst:
+        heads += [("Next step", ""), ("Lead score", "width:120px")]
     th = "".join(f'<th class="ev-th" style="{s}">{n}</th>' for n, s in heads)
     body = []
     for bid, h, ref, r in res:
         if r is None:
-            body.append(f'<tr><td class="ev-td"><b>{esc(bid)}</b></td><td class="ev-td" colspan="7">'
+            body.append(f'<tr><td class="ev-td"><b>{esc(bid)}</b></td><td class="ev-td" colspan="{len(heads) - 1}">'
                         '<span class="ev-sub">No result</span></td></tr>')
             continue
         is_sel = bid == sel
@@ -839,27 +929,31 @@ def eval_table(res, sel: str) -> str:
         if ref:
             hit = ref["verdict"] == r.best_color
             refmark = (f'<span style="font-size:12px;color:var(--{"g" if hit else "r"}-tx)">'
-                       f'{"✓" if hit else "✗"} ref</span>')
+                       f'{"✓" if hit else "✗"} ref {esc(str(ref["verdict"]))}</span>')
         else:
             refmark = '<span style="font-size:12px;color:var(--muted)">no ref</span>'
-        top, p_top = _top_color(r)
-        conf = f"{pct(p_top)} {top}" + (" · close call" if top != r.best_color else "")
+        top, _ = _top_color(r)
+        close = '<span class="ev-sub">close call</span>' if top != r.best_color or r.boundary else ""
         fl = qr(r, 'flow_temp_c')
         load = qr(r, 'heat_load_kw').p50
-        if ref:
+        if ref and ref.get("heating_load_kw"):
             load_sub = f"ref {ref['heating_load_kw']:.1f} · {pct_diff(load, ref['heating_load_kw'])}"
         else:
             b = qr(r, 'heat_load_bill_kw').p50
-            load_sub = "no bill" if b is None else f"bill {b:.1f} · {pct_diff(load, b)}"
-        body.append(
+            load_sub = (f"bill {b:.1f} · {pct_diff(load, b)}" if b is not None
+                        else "" if on_module(bid) else "no bill")
+        row = (
             f'<tr{tr}><td class="ev-td"{first}><b>{esc(bid)}</b>{tracer_chip(bid)}<span class="ev-sub">{"dev" if ref else "held-out"}</span></td>'
-            f'<td class="ev-td">{pill(r.best_color, r.best_color.capitalize())} {refmark}</td>'
-            f'<td class="ev-td">{stacked_bar(r.p_green, r.p_yellow, r.p_red)}<span class="ev-sub num">{conf}</span></td>'
+            f'<td class="ev-td">{pill(r.best_color, r.best_color.capitalize(), filled=r.best_color == "red")} {refmark}</td>'
+            f'<td class="ev-td">{stacked_bar(r.p_green, r.p_yellow, r.p_red)}<span class="ev-sub num">{gyr_text(r)}</span>{close}</td>'
+            f'<td class="ev-td">{red_risk_cell(r)}</td>'
             f'<td class="ev-td num">{t(fl.p50)}<span class="ev-sub">{flow_span(fl.p10, fl.p90)}</span></td>'
             f'<td class="ev-td num">{kw(load)}<span class="ev-sub">{load_sub}</span></td>'
-            f'<td class="ev-td num" style="text-align:right">{len(house_flags(h, r))}</td>'
-            f'<td class="ev-td">{NEXT_SHORT.get(r.visit_type, "–")}</td>'
-            f'<td class="ev-td">{score_bar(r.lead_score)}</td></tr>')
+            f'<td class="ev-td num" style="text-align:right">{len(house_flags(h, r))}</td>')
+        if inst:
+            row += (f'<td class="ev-td">{NEXT_SHORT.get(r.visit_type, "–")}</td>'
+                    f'<td class="ev-td">{score_bar(r.lead_score)}</td>')
+        body.append(row + "</tr>")
     return ('<div class="ev-card" style="overflow:hidden">'
             '<div style="display:flex;justify-content:space-between;align-items:center;padding:18px 20px 12px;'
             'flex-wrap:wrap;gap:8px"><h2 style="margin:0;font-size:16px;font-weight:600;color:var(--ink)">All buildings</h2>'
@@ -867,7 +961,8 @@ def eval_table(res, sel: str) -> str:
             '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:900px;margin:0;'
             f'border:none"><thead><tr>{th}</tr></thead><tbody>{"".join(body)}</tbody></table></div>'
             '<div style="padding:12px 20px;font-size:12px;color:var(--muted);border-top:1px solid var(--line-soft)">'
-            'Pick a building below the table to open it.</div></div>')
+            f'Red risk = chance of red; bold red from {pct(RED_RISK)}. Pick a building below the table to open it.'
+            '</div></div>')
 
 
 def _house_line(h: House) -> str:
@@ -965,6 +1060,8 @@ def eval_detail(bid: str, h: House, ref: dict | None, r: Result) -> str:
     conflicts = ('<div class="ev-card" style="overflow:hidden">'
                  + _card_head("Conflicting inputs", "Where the sources disagreed, and which one the model went with.")
                  + "".join(rows) + "</div>")
+    if not r.contradictions and not given_by_logic(bid, "contradictions"):   # optional extra the logic didn't send
+        conflicts = ""
 
     # left 2: read from the notes
     o = h.notes_obs
@@ -990,19 +1087,27 @@ def eval_detail(bid: str, h: House, ref: dict | None, r: Result) -> str:
     fl = qr(r, 'flow_temp_c')
     approx = "" if fl.p50 is None or fl.p50 > 70 else "≈ "
     bill, load50 = qv(r, 'heat_load_bill_kw'), qv(r, 'heat_load_kw')
-    if qv(r, 'saving_eur') is None:
-        cost_big = "–"
-    else:
-        cost_big = f"{'−' if qv(r, 'saving_eur') > 0 else '+'}€{abs(qv(r, 'saving_eur')):,.0f} / yr"
+    sv = qv(r, 'saving_eur')
     cost_note = (f'<div style="font-size:12px;color:var(--muted);grid-column:1/-1">{esc(clean_text(r.cost_note))}</div>'
                  if r.cost_note else "")
+    cost_cell = "" if sv is None else (
+        '<div><div style="font-size:12px;color:var(--muted)">Running cost</div>'
+        f'<div class="num" style="font-size:18px;font-weight:700;color:var(--ink)">{"−" if sv > 0 else "+"}€{abs(sv):,.0f} / yr</div>'
+        f'<div style="font-size:12px;color:var(--muted)">vs. {FUEL_WORD.get(h.fuel_type or "", "the current heating")} today</div></div>'
+        f'{cost_note}')
+    bill_sub = (f"bill says {bill:.1f}" if bill is not None else "" if on_module(bid) else "no bill")
+    if ref and ref.get("heating_load_kw"):
+        bill_sub = f"reference {ref['heating_load_kw']:.1f}" + (f" · {bill_sub}" if bill_sub else "")
+    of_what = "of simulations" if not on_module(bid) else "probability"
     verdict = _card(
         '<div style="display:flex;flex-direction:column;gap:18px">'
         '<div style="display:flex;align-items:center;gap:14px">'
         f'<span style="width:40px;height:40px;border-radius:20px;background:{_FILLED[r.best_color][0]};display:block;flex:none"></span>'
         f'<div><div style="font-size:24px;font-weight:700;line-height:1.1;color:var(--ink)">{esc(title)}</div>'
-        f'<div style="font-size:13px;color:var(--muted)">{esc(word)} · {pct(p_best)} of simulations</div></div></div>'
+        f'<div style="font-size:13px;color:var(--muted)">{esc(word)} · {pct(p_best)} {of_what}</div></div></div>'
+        '<div style="display:flex;flex-direction:column;gap:6px">'
         f'{stacked_bar(r.p_green, r.p_yellow, r.p_red, width="100%", height=10)}'
+        f'<div class="num" style="font-size:13px;color:var(--ink)">{gyr_text(r)}</div></div>'
         '<div style="display:flex;flex-direction:column;gap:10px">'
         '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">'
         '<span style="font-size:13px;color:var(--muted);font-weight:500">Flow temperature, coldest day</span>'
@@ -1014,11 +1119,8 @@ def eval_detail(bid: str, h: House, ref: dict | None, r: Result) -> str:
         'padding-top:16px">'
         '<div><div style="font-size:12px;color:var(--muted)">Heat load</div>'
         f'<div class="num" style="font-size:18px;font-weight:700;color:var(--ink)">{kw(load50)}</div>'
-        f'<div style="font-size:12px;color:var(--muted)">{"no bill" if bill is None else f"bill says {bill:.1f}"}</div></div>'
-        '<div><div style="font-size:12px;color:var(--muted)">Running cost</div>'
-        f'<div class="num" style="font-size:18px;font-weight:700;color:var(--ink)">{cost_big}</div>'
-        f'<div style="font-size:12px;color:var(--muted)">vs. {FUEL_WORD.get(h.fuel_type or "", "the current heating")} today</div></div>'
-        f'{cost_note}</div></div>')
+        f'<div style="font-size:12px;color:var(--muted)">{esc(bill_sub)}</div></div>'
+        f'{cost_cell}</div></div>')
 
     # right 2: still open
     oc = r.open_checks
@@ -1190,7 +1292,7 @@ def tab_evaluation():
     if not any(r for *_, r in res):
         st.info(f"Engine not ready yet ({ENGINE_ERR}). Buildings load fine: {', '.join(b for b, *_ in res)}")
         return
-    st.html(eval_kpis(B, dev))
+    st.html(eval_kpis(B, dev, res))
     compare_section()
 
     ids = [b for b, *_ in res]
@@ -1286,6 +1388,32 @@ IMPORTANT = {"build_year", "living_area_m2", "heat_distribution", "renovation", 
 FORM_EXAMPLE = {"build_year": 1972, "living_area_m2": 140, "building_type": "terraced", "renovation": "partially",
                 "heat_distribution": "radiators", "fuel_type": "gas", "annual_fuel_kwh": 18000, "occupants": 3,
                 "radiator_count": 10, "radiator_size": "large", "dhw_by_boiler": "yes"}
+DEMO_BILL = "assets/demo/bill_demo_gas_2025_photo.jpg"
+# Example houses for page 1 (all fictional: invented names, no addresses). A card fills the form, attaches its radiator
+# photo and bill through the same read path as an upload (orchestrator → module or demo cache, never a live LLM call)
+# and pre-fills the page-4 text box (read only on "Read it").
+EXAMPLES = {
+    "weber": {"name": "The Webers' terraced house", "place": "Munich-Pasing", "year": "1972",
+              "line": "140 m² · gas · 10 large radiators · photo and bill attached",
+              "form": FORM_EXAMPLE, "photo": "05_zweirohr-vermutet_kompakt.jpeg", "bill": DEMO_BILL,
+              "text": "assets/demo/house_persona_en.txt"},
+    "schneider": {"name": "Haus Schneider", "place": "Detached · Dachau area", "year": "1985",
+                  "line": "120 m² · oil 2,000 L · 4 people · bill attached",
+                  "form": {"build_year": 1985, "living_area_m2": 120, "building_type": "detached",
+                           "renovation": "unrenovated", "heat_distribution": "radiators", "fuel_type": "oil",
+                           "annual_fuel_liters": 2000, "occupants": 4},
+                  "photo": None, "bill": DEMO_BILL, "text": "assets/demo/house_conflict_en.txt"},
+    "farmhouse": {"name": "The old farmhouse", "place": "Upper Bavaria", "year": "year unknown",
+                  "line": "about 150 m² · radiators · the rest unknown",
+                  "form": {"living_area_m2": 150, "heat_distribution": "radiators"},
+                  "photo": None, "bill": None, "text": "assets/demo/house_minimal_en.txt"},
+    "newer": {"name": "The Kaya family's house", "place": "Detached · Erding", "year": "2008",
+              "line": "160 m² · underfloor heating · gas 12,000 kWh",
+              "form": {"build_year": 2008, "living_area_m2": 160, "building_type": "detached",
+                       "heat_distribution": "underfloor", "fuel_type": "gas", "annual_fuel_kwh": 12000, "occupants": 4,
+                       "dhw_by_boiler": "yes"},
+              "photo": None, "bill": None, "text": None},
+}
 INT_FIELDS = ("build_year", "occupants", "rooms", "radiator_count")
 FLOAT_FIELDS = ("living_area_m2", "annual_fuel_kwh", "annual_fuel_liters")
 NUM_FIELDS = {f for f, _, o, _ in FORM if isinstance(o, tuple)}
@@ -1352,11 +1480,83 @@ def form_changed(f: str):
 
 
 def form_fill_example():
+    pick_example("weber")
+
+
+def _clear_inputs():
+    """Forget every answer, read and attachment (page-1 'Start empty' and before a new example)."""
     ss = st.session_state
-    ss.form = dict(FORM_EXAMPLE)
+    ss.form, ss.reads, ss.confirmed, ss.readers = {}, {}, {}, {}
+    for k in list(ss.keys()):
+        if k.startswith(("tag_", "q_")) or k in ("read_fail", "text_unused", "example_reads"):
+            del ss[k]
+    for f, *_ in FORM:
+        ss[f"pf_{f}"] = None if f in NUM_FIELDS else DK
+    ss.house_text_val = ss.house_text_in = ""
+    ss.rad_example = "–"
+    ss.example = None
+
+
+def pick_example(key: str | None):
+    """Card click (callback): fill page 1, queue the card's photo and bill reads (run in the script body, so the read
+    path and its spinner are exactly the upload's) and pre-fill the page-4 text. key None = 'Start empty'."""
+    ss = st.session_state
+    _clear_inputs()
+    ex = EXAMPLES.get(key or "")
+    if ex is None:
+        return
+    ss.form = dict(ex["form"])
     for f, *_ in FORM:
         ss[f"pf_{f}"] = ss.form.get(f, None if f in NUM_FIELDS else DK)
-        ss.confirmed.pop(f, None)
+    if ex.get("text"):
+        try:
+            ss.house_text_val = ss.house_text_in = (ROOT / ex["text"]).read_text(encoding="utf-8").strip()
+        except OSError:
+            pass
+    ss.example = key
+    ss.example_reads = key
+
+
+def run_example_reads():
+    """The reads a card queued: the radiator photo and the bill, as if the owner had uploaded them."""
+    ss = st.session_state
+    ex = EXAMPLES.get(ss.pop("example_reads", None) or "")
+    if ex is None:
+        return
+    if ex.get("photo"):
+        ss["tag_radiator_ex"] = ss["rad_example"] = ex["photo"]
+        try:
+            do_read("radiator", (ROOT / "data/pipe_photos" / ex["photo"]).read_bytes(), "image/jpeg", "radiator")
+        except OSError as e:
+            ss.setdefault("read_fail", {})["radiator"] = str(e)
+    if ex.get("bill"):
+        ss["tag_doc_demo"] = ex["bill"]
+        try:
+            do_read("doc", (ROOT / ex["bill"]).read_bytes(), "image/jpeg", "bill")
+        except OSError as e:
+            ss.setdefault("read_fail", {})["doc"] = str(e)
+
+
+def example_gallery():
+    """Page 1: 'Try an example house' cards; the chosen one shows as selected, 'Start empty' clears everything."""
+    ss = st.session_state
+    st.markdown("**Try an example house**")
+    cols = st.columns(len(EXAMPLES))
+    for col, (key, ex) in zip(cols, EXAMPLES.items()):
+        sel = ss.get("example") == key
+        with col.container(border=True, key=f"excard_{key}"):
+            html('<div style="display:flex;justify-content:space-between;align-items:center;gap:6px">'
+                 '<span class="pill">Example</span>'
+                 + ('<span class="ok">✓ Selected</span>' if sel else "") + '</div>'
+                 f'<div style="font-weight:700;font-size:15px;margin:8px 0 2px">{esc(ex["name"])}</div>'
+                 f'<div class="muted" style="font-size:13px">{esc(ex["place"])} · {esc(ex["year"])}</div>'
+                 f'<div style="font-size:13px;margin-top:6px;min-height:38px">{esc(ex["line"])}</div>')
+            st.button("Selected" if sel else "Use this house", key=f"exbtn_{key}", on_click=pick_example, args=(key,),
+                      type="primary" if sel else "secondary", width="stretch")
+    c1, c2 = st.columns([1, 3])
+    c1.button("Start empty", key="exbtn_empty", on_click=pick_example, args=(None,), width="stretch")
+    c2.caption("Example houses are made up (names invented, no real addresses). A card fills the form and attaches "
+               "its radiator photo and bill, so you can just press Next.")
 
 
 def form_house() -> House | None:
@@ -1394,7 +1594,7 @@ def form_page(h: House):
     html('<p style="font-size:16px;margin:0 0 4px">If you don\'t know everything, it\'s okay.</p>'
          '<p class="muted" style="margin:0 0 12px">Fill in what you know and leave the rest empty. '
          '<b>*</b> marks what matters most for the answer.</p>')
-    st.button("Fill with the example", on_click=form_fill_example)
+    example_gallery()
     for f, label, opts, _ in form_rows(ss.form.get("fuel_type")):
         key = f"pf_{f}"
         num = isinstance(opts, tuple)
@@ -1489,6 +1689,7 @@ def read_upload(up, slot: str, mission: str):
     tag = f"{up.name}:{up.size}"
     if st.session_state.get(f"tag_{slot}_up") != tag:
         st.session_state[f"tag_{slot}_up"] = tag      # before the read, so a failing read isn't retried
+        st.session_state.pop(f"tag_{slot}_demo", None)   # an own upload replaces an attached example bill
         do_read(slot, up.getvalue(), up.type or "image/jpeg", mission)
 
 
@@ -1601,6 +1802,7 @@ def tab_homeowner():
     ss.setdefault("confirmed", {})
     ss.setdefault("form", {})
     ss.setdefault("readers", {})
+    run_example_reads()                               # a card click queued its photo and bill
     h = home_house()
     left, right = st.columns([3, 2])
     with left:
@@ -1617,7 +1819,9 @@ def tab_homeowner():
             read_upload(st.file_uploader("Radiator photo", type=["jpg", "jpeg", "png", "webp"], key="up_rad"),
                         "radiator", "radiator")
             photos = sorted(p.name for p in (ROOT / "data/pipe_photos").glob("*.jp*g"))
-            pick = st.selectbox("or use an example photo", ["–"] + photos)
+            if ss.get("rad_example") not in ["–"] + photos:   # seed once (widget state is dropped off-page)
+                ss["rad_example"] = ss.get("tag_radiator_ex") if ss.get("tag_radiator_ex") in photos else "–"
+            pick = st.selectbox("or use an example photo", ["–"] + photos, key="rad_example")
             if pick != "–" and ss.get("tag_radiator_ex") != pick:
                 ss["tag_radiator_ex"] = pick
                 do_read("radiator", (ROOT / "data/pipe_photos" / pick).read_bytes(), "image/jpeg", "radiator")
@@ -1631,8 +1835,10 @@ def tab_homeowner():
             read_upload(st.file_uploader("Bill or listing", type=["jpg", "jpeg", "png", "webp", "pdf"], key="up_doc"),
                         "doc", "bill")
             if st.button("Use the demo bill photo"):
-                ss["tag_doc_demo"] = "demo"
-                do_read("doc", (ROOT / "assets/demo/bill_demo_gas_2025_photo.jpg").read_bytes(), "image/jpeg", "bill")
+                ss["tag_doc_demo"] = DEMO_BILL
+                do_read("doc", (ROOT / DEMO_BILL).read_bytes(), "image/jpeg", "bill")
+            if ss.get("tag_doc_demo") and ss.reads.get("doc"):
+                st.image(str(ROOT / (ss["tag_doc_demo"] if ss["tag_doc_demo"] != "demo" else DEMO_BILL)), width=320)
             show_read("doc")
             st.caption("Only the numbers are kept.")
             act = nav(3, True)
@@ -2111,10 +2317,14 @@ def tab_installer():
 top_l, top_r = st.columns([4, 1])
 top_l.markdown("### HP-Ready")
 X.DEMO_ONLY = top_r.toggle("Demo mode", help="Use cached reads only, no live AI calls.")
-t_home, t_eval, t_inst = st.tabs(["Homeowner", "Evaluation", "Installer"])
+if show_installer():                          # HP_SHOW_INSTALLER=1: the Installer tab (out of the MVP) comes back
+    t_home, t_eval, t_inst = st.tabs(["Homeowner", "Evaluation", "Installer"])
+else:
+    (t_home, t_eval), t_inst = st.tabs(["Homeowner", "Evaluation"]), None
 with t_home:
     tab_homeowner()
 with t_eval:
     tab_evaluation()
-with t_inst:
-    tab_installer()
+if t_inst is not None:
+    with t_inst:
+        tab_installer()

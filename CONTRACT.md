@@ -1,6 +1,35 @@
 # JSON contract: UI ↔ modules (draft v2)
 
-Status: **draft v2** (`schema.CONTRACT_VERSION = "2-draft"`, 2026-10-24). Owner: Junwoo (UI + architecture). Change it only together; bump `x-contract-version`. §0 is the contract any decision logic must meet; §1–§6 (v1) are **still accepted** and describe the transport, the inputs and the optional physics extras.
+## MVP: what `calculation` must return
+
+Only four things (plus the three probabilities). Everything else is optional. `schema.check_result(h, r)` checks only these; the UI works with nothing more.
+
+| Required | Field | Rule |
+| --- | --- | --- |
+| colour | `best_color` | `"green"` \| `"yellow"` \| `"red"` |
+| how sure | `p_green`, `p_yellow`, `p_red` | each 0–1, sum ≈ 1; `p_red ≥ 0.5` ⇒ `best_color` must be `"red"` |
+| watts | quantity `heat_load_kw` (kW), or legacy `heat_load_kw: {p10, p50, p90}` | `p50` set; p10 ≤ p50 ≤ p90 |
+| temperature | quantity `flow_temp_c` (°C, coldest day), or legacy `required_flow_temp_c: {p10, p50, p90}` | `p50` set; p10 ≤ p50 ≤ p90 |
+
+Heat load and flow temperature are required once the house has area and build year (without them the module may answer yellow "can't tell yet"). Minimal valid reply (`contracts/examples/calc_output_minimal.json` is its `data`):
+
+```json
+{"ok": true, "module": "calculation", "version": "0.1", "warnings": [],
+ "data": {
+  "best_color": "green",
+  "p_green": 0.72, "p_yellow": 0.18, "p_red": 0.10,
+  "quantities": [
+    {"key": "heat_load_kw", "p10": 7.8, "p50": 9.3, "p90": 11.0},
+    {"key": "flow_temp_c", "p10": 48.0, "p50": 53.0, "p90": 58.0}
+  ]
+ }}
+```
+
+**Optional extras the UI uses when present** (absent → the section is hidden, never a wall of "–"): `reason` (else the UI writes a neutral one, e.g. "About 53 °C on the coldest day: likely suitable."), `verdict_basis` (else derived from the colour), `open_checks`, `explanations`, `trace`, `model_info`, `contradictions`, `options` / `path_to_yellow`, `radiators`, `flags`, `heat_load_bill_kw`, `specific_load_w_m2`, `jaz_bucket`, `cost_now_eur` / `cost_hp_eur` / `saving_eur` / `cost_note`, `hints`, `site_flags`, any other quantity key (shown under "Other model outputs"), and the installer fields (`visit_type`, `parts`, `installer_checklist`, `next_step`, `next_photo`, `confidence`, `lead_score`; empty ones are filled from the baseline `installer_brief`). `schema.optional_gaps(r)` lists the empty extras (information, not errors).
+
+---
+
+Status: **draft v2** (`schema.CONTRACT_VERSION = "2-draft"`, 2026-10-24). Owner: Junwoo (UI + architecture). Change it only together; bump `x-contract-version`. The **MVP section above is the only requirement**; §0 describes the full v2 result (all of it optional beyond the MVP core) and §1–§6 (v1) are **still accepted** and describe the transport, the inputs and the optional physics extras.
 
 ## Pipeline (team split, 2026-10-24 afternoon)
 
@@ -29,11 +58,11 @@ Then ML module 3 "calculation": finds internal contradictions + produces the Res
 
 ## §0 Contract v2 core (any logic)
 
-The `calculation` module (ML module 3) may be physics, a trained model (GBM, GP, …), rules or a hybrid. The app renders **any** `Result` that fills the core below; everything else is optional.
+The `calculation` module (ML module 3) may be physics, a trained model (GBM, GP, …), rules or a hybrid. **Superseded as a requirement by "MVP" at the top**: only colour, probabilities, heat load and flow temperature are checked. The table below is the full v2 result the screens use best; every row beyond the MVP core is now an optional extra.
 
-**Required core** (`schema.check_result(h, r)` returns no warnings):
+**Full v2 result** (recommended, no longer checked by `schema.check_result`):
 
-| Field | Meaning | `check_result` wording when broken |
+| Field | Meaning | old v2 `check_result` wording (now only the MVP rows are checked) |
 | --- | --- | --- |
 | `best_color` + `p_green`, `p_yellow`, `p_red` | verdict (`green`/`yellow`/`red`) and colour probabilities summing to 1 | `probabilities sum to X, not 1` |
 | `verdict_basis` | `likely_suitable` · `checks_remain` · `cannot_tell_yet` · `obstacle` (obstacle ⇒ red; missing data ⇒ yellow `cannot_tell_yet`, never red) | `verdict_basis obstacle but colour is not red` · `missing data must be yellow, not red` |
@@ -52,7 +81,7 @@ The colour/reason/quantity/explanation/open_checks checks apply once the house h
 
 **`ModelInfo`** — reproducibility for the paper: `name`, `version`, `kind` (`physics` · `ml` · `hybrid` · `rule` · `other`), `trained_on`, `data_hash`, `seed`, `params`, `metrics` (self-reported, e.g. `{"loo_verdict_acc": 0.67}`). The UI shows "Model: name · version · kind" (Evaluation detail, Installer header) and metrics as **"Reported by the model: …"**, always labelled self-reported. Numbers the app computes itself from predictions vs `reference` (verdicts reproduced, heat-load error, Compare logic) are shown as measured (invariant 8).
 
-**Minimal valid module reply** (`data` validates as `Result`, `check_result` → `[]`):
+**A fuller module reply** (`data` validates as `Result`; the extras beyond the MVP core are optional):
 
 ```json
 {"ok": true, "module": "calculation", "version": "2-draft", "warnings": [],
@@ -150,7 +179,7 @@ OCR or any method; raw numbers as printed; no conversion. Reads a gas/oil/LPG bi
 - Photo quality problems (blurry, cut off, not a bill) come back in its own `missing` / `retake_tip`; there is no separate image check.
 
 ### 3 calculation → `Result`
-Input `{"house": House}`. **Owns internal contradictions** (`Result.contradictions`, see "Contradictions vs conflicts" at the top); input conflicts arrive already resolved, listed in `House.conflicts` for context. Output a `Result`; this replaces `engine.py`'s `evaluate` + `installer_brief`. **v2:** only the §0 core is required; the list below is the v1 physics shape, still accepted and used when present.
+Input `{"house": House}`. **Owns internal contradictions** (`Result.contradictions`, see "Contradictions vs conflicts" at the top); input conflicts arrive already resolved, listed in `House.conflicts` for context. Output a `Result`; this replaces `engine.py`'s `evaluate` + `installer_brief`. **MVP:** only the core at the top (colour, probabilities, heat load, flow temperature) is required; the list below is the v1 physics shape, still accepted and used when present.
 - The UI reads: `best_color`, `verdict_basis`, `boundary`, `reason`, `p_green/p_yellow/p_red`, `required_flow_temp_c`, `heat_load_kw`, `heat_load_bill_kw` (`{p10, p50, p90}`), `jaz_bucket`, `cost_now_eur`, `cost_hp_eur`, `saving_eur`, `contradictions`, `open_checks`, `trace`, `visit_type`, `parts`, `lead_score`, `next_step`, and the **structured** fields `options`, `radiators`, `flags`, `always_checks` (fill numbers and kinds; the UI writes the sentences).
 - Rules: CLAUDE.md "Engine" (fixed prices and JAZ, 55/60 °C bands, missing data → yellow `cannot_tell_yet`, never red).
 - Check against the Python engine: `contracts/examples/calc_output_B-04.json` / `B-05.json` are today's results for the same inputs.

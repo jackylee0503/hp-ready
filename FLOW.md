@@ -31,7 +31,7 @@ flowchart LR
     H -->|orchestrator: ML 3 calculation<br/>contradictions + Result<br/>fallback engine.py → engine_tracer.py| R[Result]
     R --> E[📊 Evaluation tab]
     R --> HO[🏠 Homeowner answer card]
-    R --> I[🔧 Installer sheet]
+    R --> I[🔧 Installer sheet, hidden in the MVP: HP_SHOW_INSTALLER=1]
 ```
 
 Plain text version:
@@ -83,7 +83,9 @@ House ──orchestrator: calculation module (contradictions + Result) | engine.
 | Prices, JAZ | `schema.py` constants | Fixed by the challenge: don't change |
 | How a bill / radiator photo is read | `modules/bill_recognizer.py`, `modules/pipe_classifier.py` (contract: `CONTRACT.md`) | Fallback reader: demo cache `samples/cached_extract.json` only; the live prompt (`extract.py` `SYSTEM`, `HINT`) runs only with `HP_LLM_FALLBACK=1` |
 | Replace the whole calculation | `modules/calculation.py` (or `HP_MODULE_CALCULATION="pkg.mod:func"`) | Check: `CONTRACT.md` §5; on failure the app falls back to `engine.py` per building |
-| Page-1 form fields, example values | `app.py` `FORM`, `FORM_EXAMPLE`, `form_house` | |
+| Page-1 form fields, example houses (cards: form + photo + bill + page-4 text) | `app.py` `FORM`, `EXAMPLES` (`FORM_EXAMPLE` = the Webers), `form_house`, `pick_example` | |
+| Installer tab on/off (out of the MVP) | env `HP_SHOW_INSTALLER=1` (`app.py` `show_installer`) | |
+| Red emphasis in Evaluation | `app.py` `RED_RISK` (30 %), `red_risk_cell`, `red_calls_card` | |
 | What the AI reads from building notes | `loader.py`, `NOTES_SYSTEM` | Then delete `data/notes_cache.json` entries and run `python loader.py` |
 | Which input wins when two disagree | `extract.py`, `ORDER`, `GROUP` in `merge` | |
 | Screen text, layout, colours | `app.py` (`answer_card`, `tab_evaluation`, `tab_homeowner`, `tab_installer`) | Theme: `.streamlit/config.toml` |
@@ -112,7 +114,7 @@ Fields the screens read (fill them or the UI shows "–"): `best_color`, `verdic
 - `flags`: list of `Flag` (`text`, `src`, `kind`): house-specific issues for the installer. One sentence, no "Check on site:" prefix, never one of the always-checks.
 - `always_checks`: the checks done at every visit (else `engine.ALWAYS_CHECKS`, else the app defaults).
 
-**Contract check.** `schema.check_result(h, r)` lists anything that would show as "–" or nonsense (probabilities not summing to 1, p10 > p50, empty UI fields, red with missing data, …). The Evaluation tab prints its findings as small grey lines under the table. Nothing printed = fine.
+**Contract check.** `schema.check_result(h, r)` checks only the MVP core (CONTRACT.md "MVP": colour, probabilities summing to 1 with p_red ≥ 0.5 ⇒ red, heat load kW, flow temperature °C, p10 ≤ p50 ≤ p90); `schema.optional_gaps(r)` lists the optional extras left empty (the UI hides those sections). The Evaluation tab prints its findings as small grey lines under the table. Nothing printed = fine.
 
 **Safety nets.**
 

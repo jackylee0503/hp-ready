@@ -384,7 +384,8 @@ QUANTITY_KEYS = {                              # key → (label, unit) for the U
 
 class Result(BaseModel):
     building_id: Optional[str] = None
-    # v2 core (any logic): best_color, verdict_basis, p_*, reason, quantities, explanations, open_checks, model_info
+    # MVP core (required, CONTRACT.md "MVP"): best_color, p_green/p_yellow/p_red, quantities heat_load_kw + flow_temp_c
+    # (or the legacy ranges heat_load_kw / required_flow_temp_c). Every other field is an optional extra.
     quantities: list[Quantity] = []
     explanations: list[Explanation] = []
     model_info: Optional[ModelInfo] = None
@@ -436,7 +437,12 @@ class Result(BaseModel):
 
 LEGACY_QUANTITIES = {"flow_temp_c": "required_flow_temp_c", "heat_load_kw": "heat_load_kw",
                      "heat_load_bill_kw": "heat_load_bill_kw"}
-OPTIONAL_FIELDS = ("visit_type", "next_step", "parts", "options", "flags", "contradictions", "cost_now_eur")
+# MVP core (CONTRACT.md "MVP"): the only things `calculation` must return. Everything else is optional.
+MVP_CORE = ("best_color", "p_green", "p_yellow", "p_red", "heat_load_kw", "flow_temp_c")
+# Optional extras the UI uses when present (optional_gaps lists the empty ones; information, not errors).
+OPTIONAL_FIELDS = ("reason", "verdict_basis", "open_checks", "explanations", "trace", "model_info", "contradictions",
+                   "options", "flags", "cost_now_eur", "saving_eur", "heat_load_bill_kw", "visit_type", "next_step",
+                   "parts")
 
 
 def with_core(r: Result, default_info: Optional[ModelInfo] = None) -> Result:
@@ -473,46 +479,51 @@ def quantity(r: Result, key: str) -> Optional[Quantity]:
 
 
 def optional_gaps(r: Result) -> list[str]:
-    """Optional fields the logic left empty (the UI shows '–' or falls back); information, not errors."""
-    return [f for f in OPTIONAL_FIELDS if getattr(r, f) in (None, [], "") or
-            (f == "parts" and r.parts.radiators_to_swap is None and r.parts.balancing is None)]
+    """Optional extras the logic left empty (the UI hides those sections); information, not errors."""
+    out = []
+    for f in OPTIONAL_FIELDS:
+        if f in LEGACY_QUANTITIES:
+            empty = quantity(r, f) is None
+        elif f == "parts":
+            empty = r.parts.radiators_to_swap is None and r.parts.balancing is None
+        elif f == "verdict_basis":
+            empty = "verdict_basis" not in r.model_fields_set
+        else:
+            empty = getattr(r, f) in (None, [], "")
+        if empty:
+            out.append(f)
+    return out
 
 
 def check_result(h: "House", r: Result) -> list[str]:
-    """Contract v2: problems that break an invariant or the screens. Empty list = fine. Never raises.
-    Required for any logic: colour + probabilities, reason, at least one quantity with a range,
-    something that explains the verdict (explanations or trace), open_checks, model_info."""
+    """MVP contract: problems in the required core only. Empty list = fine. Never raises.
+    Required: `best_color`, `p_green` / `p_yellow` / `p_red` (sum ≈ 1; p_red ≥ 0.5 means red), heat load
+    (quantity `heat_load_kw` or the legacy range) and flow temperature (quantity `flow_temp_c` or legacy
+    `required_flow_temp_c`), each with p10 ≤ p50 ≤ p90. Heat load and flow temperature are required once the house has
+    area and build year (without them the logic may answer "can't tell yet"). Everything else: optional_gaps."""
     out: list[str] = []
     try:
         core = h.living_area_m2 is not None and h.build_year is not None
-        s = r.p_green + r.p_yellow + r.p_red
-        if core and abs(s - 1.0) > 0.02:
-            out.append(f"probabilities sum to {s:.2f}, not 1")
+        if r.best_color not in ("green", "yellow", "red"):
+            out.append(f"best_color {r.best_color!r} is not green / yellow / red")
+        ps = (r.p_green, r.p_yellow, r.p_red)
+        if any(p is None or p < 0 or p > 1 for p in ps):
+            out.append(f"probabilities must be between 0 and 1 ({ps})")
+        else:
+            s = sum(ps)
+            if (core or s > 0) and abs(s - 1.0) > 0.02:
+                out.append(f"probabilities sum to {s:.2f}, not 1")
+            if r.p_red >= 0.5 and r.best_color != "red":
+                out.append(f"p_red is {r.p_red:.2f} (≥ 0.5) but best_color is {r.best_color}")
+        for key, word in (("heat_load_kw", "heat load (kW)"), ("flow_temp_c", "flow temperature (°C)")):
+            q = quantity(r, key)
+            if (q is None or q.p50 is None) and core:
+                out.append(f"{word} missing: quantity {key!r} or legacy {LEGACY_QUANTITIES[key]!r}")
         qs = list(r.quantities) + [q for k in LEGACY_QUANTITIES if (q := quantity(r, k)) is not None]
         for q in qs:
             vals = [v for v in (q.p10, q.p50, q.p90) if v is not None]
             if vals != sorted(vals):
                 out.append(f"{q.key}: p10 ≤ p50 ≤ p90 broken ({q.p10}, {q.p50}, {q.p90})")
-        if core:
-            if not r.reason:
-                out.append("reason empty")
-            if not r.open_checks:
-                out.append("open_checks empty")
-            if not any(q.p50 is not None for q in qs):
-                out.append("no quantity (quantities or legacy ranges)")
-            if not (r.explanations or r.trace):
-                out.append("nothing explains the verdict (explanations or trace)")
-        if r.model_info is None:
-            out.append("model_info missing")
-        if r.verdict_basis == "obstacle" and r.best_color != "red":
-            out.append("verdict_basis obstacle but colour is not red")
-        if r.best_color == "red" and r.verdict_basis == "cannot_tell_yet":
-            out.append("missing data must be yellow, not red")
-        if r.best_color != "green" and core and not (r.options or r.path_to_yellow):
-            out.append("not green but no options / path_to_yellow")
-        for f in r.flags:
-            if f.text.lower().startswith("check on site"):
-                out.append(f"flag text has a 'Check on site' prefix: {f.text[:40]}")
     except Exception as e:                      # the checker itself must never break the app
         out.append(f"check_result failed: {e}")
     return out
@@ -523,6 +534,17 @@ def check_result(h: "House", r: Result) -> list[str]:
 CONTRACT_VERSION = "2-draft"
 CONTRACT_MODELS = {"house": House, "result": Result, "bill": BillObs, "pipe": RadiatorObs}
 BASELINE_INFO = ModelInfo(name="physics baseline", version="engine.py", kind="physics", trained_on="3 organiser dev buildings (one parameter k)", seed=0, params={"k": DEFAULT.k, "n": 500})
+
+
+# The smallest valid `calculation` reply `data` (CONTRACT.md "MVP"): colour, G/Y/R probabilities, heat load, flow temp.
+MINIMAL_REPLY_DATA = {
+    "best_color": "green",
+    "p_green": 0.72, "p_yellow": 0.18, "p_red": 0.10,
+    "quantities": [
+        {"key": "heat_load_kw", "p10": 7.8, "p50": 9.3, "p90": 11.0},
+        {"key": "flow_temp_c", "p10": 48.0, "p50": 53.0, "p90": 58.0},
+    ],
+}
 
 
 def export_contracts(out_dir: str = "contracts") -> list[str]:
@@ -551,6 +573,7 @@ def export_contracts(out_dir: str = "contracts") -> list[str]:
             r = with_core(engine.installer_brief(h, engine.evaluate(h)), BASELINE_INFO)
             dump(root / "examples" / f"calc_input_{bid}.json", {"house": h.model_dump(mode="json")})
             dump(root / "examples" / f"calc_output_{bid}.json", r.model_dump(mode="json"))
+    dump(root / "examples" / "calc_output_minimal.json", MINIMAL_REPLY_DATA)
     form = House(building_id="form-example", build_year=1972, living_area_m2=140.0, building_type="terraced",
                  renovation="partially", heat_distribution="radiators", fuel_type="gas", annual_fuel_kwh=18000.0,
                  occupants=3, radiator_count=10, radiator_size="large", dhw_by_boiler=True)
