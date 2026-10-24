@@ -1692,8 +1692,16 @@ def form_house() -> House | None:
 def form_page(h: House):
     ss = st.session_state
     st.markdown("## Your house")
-    html('<p style="font-size:16px;margin:0 0 4px">If you don\'t know everything, it\'s okay.</p>'
-         '<p class="muted" style="margin:0 0 12px">Fill in what you know and leave the rest empty. '
+    html('<div style="background:#EAF1F8;border:1px solid #CFDDEB;border-radius:16px;padding:16px 18px;margin:4px 0 16px">'
+         '<div style="font-size:18px;font-weight:700;color:#14213D;margin-bottom:6px">'
+         'Don\'t know everything? Leave it empty.</div>'
+         '<div style="font-size:15px;color:#14213D;line-height:1.5">Our AI reads a <b>photo of your radiator</b>, '
+         'your <b>energy bill</b> and a few words from you, and fills in what you skip. '
+         'Whatever stays unknown becomes a range, never a guess.</div>'
+         '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">'
+         '<span class="pill">2 · Radiator photo</span><span class="pill">3 · Bill</span>'
+         '<span class="pill">4 · Anything else, in your words</span></div></div>'
+         '<p class="muted" style="margin:0 0 12px">Fill in what you know. '
          '<b>*</b> marks what matters most for the answer.</p>')
     rows = sorted(form_rows(ss.form.get("fuel_type")), key=lambda r: FORM_GROUPS.index(GROUP_OF[r[0]]))
     group = None
