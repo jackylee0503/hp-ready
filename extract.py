@@ -88,14 +88,17 @@ def keyword_house(text: str) -> HouseTextObs:
     m = (re.search(r"(?:baujahr|built|from|von|aus|construction)\D{0,15}?\b(1[89]\d\d|20[0-2]\d)\b", low)
          or re.search(r"\b(1[89]\d\d|20[0-2]\d)\b(?!\s*(?:l|kwh|m|qm|€|eur|liter))", low))
     put("build_year", int(m.group(1)) if m else None, m and m.group(0))
-    m = re.search(r"(\d[\d.,]*)\s*(m²|m2|qm|sqm|square met)", low)
+    m = re.search(r"(\d[\d.,]*)\s*(m²|m2|qm|sqm|square met|quadratmeter)", low)
     v = _num(m.group(1)) if m else None
     put("living_area_m2", v, m and m.group(0))
-    m = re.search(r"(\d[\d.,]*)\s*kwh", low)
+    m = re.search(r"(\d[\d.,]*)\s*(kwh|mwh|liter|litre|\bl\b)", low)
     v = _num(m.group(1)) if m else None
     if v is not None:
+        unit = m.group(2)
+        if unit == "mwh":
+            v, unit = v * 1000, "kwh"
         put("yearly_use_value", v, m.group(0))
-        o.yearly_use_unit = "kWh"
+        o.yearly_use_unit = "kWh" if unit == "kwh" else "l"
     m = re.search(r"(\d+)\s*(radiators|heizkörper)", low)
     put("radiator_count", int(m.group(1)) if m else None, m and m.group(0))
     m = (re.search(r"(\d+)\s*(?:people|persons|personen|leute)", low) or re.search(r"(\d+|\w+) of us", low)

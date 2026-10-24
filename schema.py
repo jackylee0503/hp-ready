@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 # ---------------------------------------------------------------- enums
 
@@ -241,6 +241,22 @@ class House(BaseModel):
     missing: dict[str, MissingReason] = {}
     retake_tip: Optional[str] = None           # one concrete tip when a photo was unreadable
     conflicts: list[dict] = []                 # {field, values: {source: value}, used: source} from merge
+
+    @field_validator("build_year", "living_area_m2", "rooms", "occupants", "annual_fuel_kwh", "annual_fuel_liters",
+                     "monthly_advance_eur", "radiator_count", "valves_to_replace", "kwh_printed", "m3", "liters",
+                     "current_flow_temp_c", "certificate_kwh_m2a", "certificate_area_m2", mode="after")
+    @classmethod
+    def _sane(cls, v, info):
+        """Unknown stays empty (Invariant 2): an impossible number (0 m², negative use, year 3024, NaN) is not a
+        value, it is "don't know". Keeps every logic module away from division by zero and NaN."""
+        if v is None:
+            return None
+        if v != v or v in (float("inf"), float("-inf")):
+            return None
+        lo, hi = {"build_year": (1800, 2100), "current_flow_temp_c": (15, 120), "occupants": (1, 60),
+                  "rooms": (1, 100), "radiator_count": (0, 200), "valves_to_replace": (0, 200),
+                  "living_area_m2": (5, 5000)}.get(info.field_name, (0.001, 1e9))
+        return v if lo <= v <= hi else None
 
 
 # ---------------------------------------------------------------- Params (engine knobs)
