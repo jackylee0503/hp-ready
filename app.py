@@ -805,6 +805,9 @@ def rechenweg(r: Result, h: House | None = None):
 
 
 def answer_card(h: House, r: Result | None, key: str):
+    """Homeowner answer (team decision 2026-10-24: show little). Always: colour + one sentence, G/Y/R chances,
+    water temperature, heating load. Collapsed: what's still open (red: what would change it). One button to an
+    installer; cost, Rechenweg and hints stay in the Evaluation tab and on the PDF."""
     if r is None:
         st.info(f"Engine not ready yet ({ENGINE_ERR or 'no result'}).")
         return
@@ -812,69 +815,38 @@ def answer_card(h: House, r: Result | None, key: str):
     html(f'<div class="card"><span class="light" style="background:{COL[r.best_color]}"></span>'
          f'<span style="font-size:26px;font-weight:700">{title}</span> <span class="muted">{word}</span>'
          f'<p style="font-size:16px;margin:12px 0 0">{esc(fix_text(r.reason))}</p></div>')
-    red = r.best_color == "red"
-    rg = qr(r, 'flow_temp_c')
-    hot = red or (rg.p50 is not None and rg.p50 > 60)
-    # UI review: the 1-2 sections that say why and what next start open; the rest stay collapsed.
-    if rg.p50 is not None:
-        with st.expander(f"Why this colour · water at {about_t(rg.p50)}", expanded=True):
-            html(scale(r))
-            st.caption((f"Likely {flow_span(rg.p10, rg.p90)} on the coldest day. "
-                        if rg.p10 is not None and rg.p90 is not None else "")
-                       + "Up to 55 °C a heat pump runs efficiently, up to 60 °C it still works; lower is cheaper.")
-    takes = what_it_takes(h, r) if red else []
-    if takes:
-        with st.expander("What would change it", expanded=True):
+    rg, ld = qr(r, 'flow_temp_c'), qr(r, 'heat_load_kw')
+    if r.verdict_basis == "cannot_tell_yet":      # numbers from a missing core field would read like a verdict
+        rows = ['<div style="font-size:14px;color:#4A5565">Chances, water temperature and heating load show up '
+                'once we know the missing piece above. Use "Change answers" to add it.</div>']
+    else:
+        rows = ['<div style="font-size:13px;color:#4A5565;margin-bottom:6px">How sure</div>' + prob_bar(r)
+            + f'<div style="font-size:14px;margin:6px 0 14px">Green {r.p_green:.0%} · Yellow {r.p_yellow:.0%} · '
+              f'Red {r.p_red:.0%}</div>']
+    if rg.p50 is not None and r.verdict_basis != "cannot_tell_yet":
+        span = f" · likely {flow_span(rg.p10, rg.p90)}" if rg.p10 is not None and rg.p90 is not None else ""
+        rows.append(f'<div style="font-size:13px;color:#4A5565" title="{esc(TERMS.get("Vorlauftemperatur", ""))}">'
+                    f'Water temperature on the coldest day: <b style="color:#14213D">{esc(about_t(rg.p50))}</b>'
+                    f'{esc(span)}</div>' + scale(r))
+    if ld.p50 is not None and r.verdict_basis != "cannot_tell_yet":
+        rows.append(f'<div style="font-size:13px;color:#4A5565" title="{esc(TERMS["Heizlast"])}">'
+                    f'Heating load: <b style="color:#14213D">{esc(t_range(ld, kw))}</b></div>')
+    html('<div class="card" style="margin-top:12px">' + "".join(rows) + '</div>')
+    takes = what_it_takes(h, r) if r.best_color == "red" else []
+    if takes:                                     # Invariant 6: every red carries its path to yellow
+        with st.expander("What would change it"):
             for tt, b in takes:
                 st.markdown(f"**{tt}**  \n{b}")
             st.caption("Physics only: an installer turns this into parts and a price.")
     if r.open_checks:
         n = len(r.open_checks)
-        with st.expander(f"What's still open · {n} thing{'s' if n != 1 else ''}", expanded=not takes):
+        with st.expander(f"What's still open · {n} thing{'s' if n != 1 else ''}"):
             for i, c in enumerate(r.open_checks, 1):
                 st.markdown(f"{i}. {fix_text(c.item)}" + (f" ({fix_text(c.why)})" if c.why else ""))
-    top = max((("green", r.p_green), ("yellow", r.p_yellow), ("red", r.p_red)), key=lambda x: x[1])
-    with st.expander(f"How sure · {top[1]:.0%} {top[0]}"):
-        html(prob_bar(r))
-        st.caption(f"Green {r.p_green:.0%} · Yellow {r.p_yellow:.0%} · Red {r.p_red:.0%}")
-    if qv(r, 'cost_now_eur') is not None or qv(r, 'cost_hp_eur') is not None:    # optional extra: hide when absent
-        sv = qv(r, 'saving_eur')
-        now_, hp_ = qv(r, 'cost_now_eur'), qv(r, 'cost_hp_eur')
-        # Red / above 60 °C: no saving headline (it reads like good news); a neutral lower-bound line instead.
-        with st.expander("Running cost" + ("" if hot else (f" · save ~{eur(sv)}/yr" if sv and sv > 0 else ""))):
-            if hot:
-                st.markdown(f"At {about_t(rg.p50) if rg.p50 is not None else 'this temperature'} a heat pump runs "
-                            "expensively. The lower-bound estimate is "
-                            + " · ".join(x for x in (
-                                f"heat pump **{eur(hp_)}**/yr" if hp_ is not None else "",
-                                f"today **{eur(now_)}**/yr" if now_ is not None else "") if x) + ".")
-            else:
-                st.markdown(" · ".join(x for x in (
-                    f"Today **{eur(now_)}**" if now_ is not None else "",
-                    f"heat pump **{eur(hp_)}**" if hp_ is not None else "") if x))
-            if r.cost_note:
-                st.caption(fix_text(r.cost_note))
-            st.caption("Challenge prices. Installation and subsidies come with the quote.")
-    with st.expander("How we got this"):
-        rechenweg(r, h)
-    for hint in r.hints:
-        (st.markdown if hint.startswith("Myth") else st.caption)(fix_text(hint))
-    ns = r.next_step
-    if ns and ns.kind == "answer_question":       # "Answer one more question" goes back to the questions page
-        st.button(ns.label, key=f"next_{key}", type="primary", width="stretch",
-                  on_click=lambda: st.session_state.update(step=4))
-        if ns.detail:
-            st.caption(fix_text(ns.detail))
-    elif ns and not red:                          # get a quote / request a check → the request form below
-        html(f'<a class="cta" href="#request" target="_self">{esc(ns.label)} ↓</a>')
-        if ns.detail:
-            st.caption(fix_text(ns.detail[:1].upper() + ns.detail[1:]))
-    elif ns:                                      # red: what would change it is open above; the installer is optional
-        html('<a class="cta secondary" href="#request" target="_self">Talk to an installer anyway ↓</a>')
-    if on_tracer(h.building_id):
-        st.caption("Computed with the backup engine.")
-    elif on_module(h.building_id):
-        st.caption("Computed by the calculation module.")
+    req = f"ask_{key}"
+    if not st.session_state.get(req):
+        st.button("Ask an installer", key=f"askbtn_{key}", type="primary", width="stretch",
+                  on_click=lambda: st.session_state.update({req: True}))
 
 # ---------------------------------------------------------------- tabs
 
@@ -2121,7 +2093,7 @@ def tab_homeowner():
                 st.rerun()
             r = evaluate(h)
             answer_card(h, r, "home")
-            if r is not None:
+            if r is not None and ss.get("ask_home"):
                 request_panel(h, r, "home")
         if act == "next":
             ss.step += 1
