@@ -533,12 +533,21 @@ def _house_flags_from_text(h: House, r: Result) -> list[dict]:
 # ---------------------------------------------------------------- shared blocks
 
 
-def rechenweg(r: Result):
+def _band_text(h: House | None, s: str | None) -> str | None:
+    """A year chosen as a band is stored as a representative year; show the band, never that year."""
+    ev = (h.evidence.get("build_year") or "") if h is not None and h.build_year else ""
+    if not s or not ev.startswith("band "):
+        return s
+    return re.sub(rf"\b{h.build_year}\b", ev[5:], s)
+
+
+def rechenweg(r: Result, h: House | None = None):
     b = r.heat_load_bill_kw
     st.markdown(f"Heating load (size, age): **{t_range(r.heat_load_kw, kw)}**  \n"
                 f"From the bill: {t_range(b, kw)}")
     if r.trace:
-        st.dataframe(pd.DataFrame([s.model_dump() for s in r.trace]), hide_index=True, width="stretch")
+        rows = [{k: _band_text(h, v) if isinstance(v, str) else v for k, v in s.model_dump().items()} for s in r.trace]
+        st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
     for c in r.contradictions:
         st.markdown(f"- **{c.what}**" + (f" · trusted: {c.trusted}." if c.trusted else "") + f" {c.why or ''}")
     st.caption("First estimate, not a DIN EN 12831 calculation. " + " · ".join(f"{k}: {v}" for k, v in TERMS.items()))
@@ -572,7 +581,7 @@ def answer_card(h: House, r: Result | None, key: str):
             for i, c in enumerate(r.open_checks, 1):
                 st.markdown(f"{i}. {c.item}" + (f" ({c.why})" if c.why else ""))
     with st.expander("How we got this"):
-        rechenweg(r)
+        rechenweg(r, h)
     for hint in r.hints:
         st.caption(hint)
     if r.next_step:
@@ -707,7 +716,7 @@ def eval_table(res, sel: str) -> str:
 
 
 def _house_line(h: House) -> str:
-    parts = [str(h.build_year) if h.build_year else None,
+    parts = [_band_text(h, str(h.build_year)) if h.build_year else None,
              f"{h.living_area_m2:.0f} m²" if h.living_area_m2 else None,
              FUEL_WORD.get(h.fuel_type or "", h.fuel_type)]
     n = h.radiator_count
@@ -1448,7 +1457,7 @@ def installer_meta(h: House) -> str:
         rad = "underfloor heating"
     else:
         rad = f"{n} radiator{'s' if n != 1 else ''}" if n else None
-    parts = [human_enum(h.building_type) if h.building_type else None, str(h.build_year) if h.build_year else None,
+    parts = [human_enum(h.building_type) if h.building_type else None, _band_text(h, str(h.build_year)) if h.build_year else None,
              f"{h.living_area_m2:.0f} m²" if h.living_area_m2 else None, fuel, rad]
     return " · ".join(p for p in parts if p)
 

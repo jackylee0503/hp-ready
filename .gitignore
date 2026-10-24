@@ -9,3 +9,5 @@ samples/*.jpeg
 samples/*.png
 samples/*.heic
 samples/*.pdf
+.claude/worktrees/
+.gstack/
