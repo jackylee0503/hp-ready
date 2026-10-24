@@ -1,8 +1,10 @@
 """HP-Ready. Tabs Homeowner / Evaluation / Installer. Layout and copy: docs/design/. The app never computes physics."""
 from __future__ import annotations
 
+import re
 import urllib.parse
 from functools import reduce
+from html import escape as esc
 from pathlib import Path
 
 import pandas as pd
@@ -48,6 +50,12 @@ st.markdown("""<style>
 .bars{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:4px 0 16px}
 .bars div{height:5px;border-radius:3px;background:#D5DBE1}
 .bars div.on{background:#14213D}
+.ev-th{font-size:12px;font-weight:500;color:var(--muted);text-align:left;padding:12px 12px;border:none;
+       border-bottom:1px solid var(--line);white-space:nowrap;background:transparent}
+.ev-td{font-size:14px;color:var(--ink);padding:14px 12px;border:none;border-bottom:1px solid var(--line-soft);
+       vertical-align:middle;white-space:nowrap;background:transparent}
+.ev-sub{display:block;font-size:12px;color:var(--muted);margin-top:2px}
+.ev-card{background:var(--card);border:1px solid var(--line);border-radius:16px;min-width:0}
 /* Material icons (Streamlit 1.66: span data-testid=stIconMaterial or st*Icon*, aria-hidden, translate=no) keep their font */
 .stApp [data-testid="stIconMaterial"], .stApp span[data-testid*="Icon"], .stApp span[translate="no"][aria-hidden="true"],
 .stApp .material-symbols-rounded {font-family:"Material Symbols Rounded" !important;}
@@ -244,7 +252,7 @@ def flow_scale(p10: float | None, p50: float | None, p90: float | None, lo_t: fl
     mark = ("" if p50 is None else
             f'<span style="position:absolute;left:{pos(p50):.2f}%;top:8px;width:3px;height:22px;margin-left:-1px;'
             'background:var(--ink);border-radius:2px;display:block"></span>')
-    return (f'<div role="img" aria-label="flow temperature {t(p50)}, likely {t(min(vals))} to {t(max(vals))}">'
+    return (f'<div role="img" aria-label="{esc(f"flow temperature {t(p50)}, likely {t(min(vals))} to {t(max(vals))}")}">'
             f'<div style="position:relative;height:34px">{rng}<span style="position:absolute;left:0;right:0;top:14px;'
             f'height:10px;display:flex;border-radius:5px;overflow:hidden">{segs}</span>{mark}</div>'
             f'<div style="display:grid;grid-template-columns:{cols};font-size:11px;color:var(--muted);margin-top:4px">'
@@ -292,6 +300,90 @@ def pct_diff(a, b) -> str:
         return "–"
     d = round((a - b) / b * 100)
     return f"{'+' if d > 0 else '−' if d < 0 else '±'}{abs(d)} %"
+
+
+def signed_pct(v: float | None, nd: int = 1) -> str:
+    """'+19.8 %' / '−9.4 %' with a real minus sign."""
+    if v is None:
+        return "–"
+    return f"{'+' if v > 0 else '−' if v < 0 else '±'}{abs(v):.{nd}f} %"
+
+
+def pct(p: float | None) -> str:
+    return "–" if p is None else f"{round(p * 100)} %"
+
+
+def flow_span(p10: float | None, p90: float | None) -> str:
+    """Likely flow range, en dash, '70+' when the tail runs past the display clip."""
+    if p10 is None or p90 is None:
+        return "–"
+    lo, hi = min(p10, p90), max(p10, p90)
+    if lo > 70:
+        return ">70 °C"
+    return f"{lo:.0f}–{min(hi, 70):.0f}{'+' if hi > 70 else ''} °C"
+
+
+def clean_text(s: str | None) -> str:
+    """Engine prose for display: 'MC' -> 'simulation', '->' -> arrow, ASCII ranges -> en dash. Not escaped."""
+    s = (s or "").strip()
+    s = re.sub(r"\bthe MC\b", "the simulation", s)
+    s = re.sub(r"\bMC\b", "simulation", s)
+    s = s.replace("->", "→")
+    s = re.sub(r"(\d)-(\d)", r"\1–\2", s)
+    s = re.sub(r"\(([+-]?\d+)%\)", lambda m: f"({signed_pct(float(m.group(1)), 0)})", s)
+    return s[:1].upper() + s[1:] if s else s
+
+
+TRUSTED = {"documented area (verdict)": "Documented area", "area × age": "Area × age", "both": "Both",
+           "notes": "Notes", "detail (LPG)": "Carrier detail (LPG)", "area × 0.85": "Area × 0.85"}
+NEXT_SHORT = {"visit_with_parts": "Short visit, parts", "hold": "Hold until changes", "remote_quote": "Remote quote"}
+FUEL_WORD = {"gas": "gas", "lpg": "LPG", "oil": "oil", "district": "district heating", "electric": "electric heating"}
+
+
+def trusted_label(s: str | None) -> str:
+    s = (s or "").strip()
+    return TRUSTED.get(s, s[:1].upper() + s[1:])
+
+
+def bill_chip(h: House) -> str:
+    return {"gas": "Gas bill", "oil": "Oil bill"}.get(h.fuel_type or "", "Bill")
+
+
+def _contradiction_src(h: House, c) -> str:
+    srcs = " ".join(c.sources).lower()
+    if "consumption" in srcs:
+        return bill_chip(h)
+    if "rooms" in srcs:
+        return "Area vs. room count"
+    if "notes" in srcs:
+        return "Notes"
+    return "Building data"
+
+
+def house_flags(h: House, r: Result) -> list[dict]:
+    """Issues specific to this house: site flags + installer checklist minus engine.ALWAYS_CHECKS.
+    Same count in the Evaluation table and the Installer tab. Each item: {text, src}."""
+    always = set(getattr(engine, "ALWAYS_CHECKS", []) or [])
+    out = [{"text": clean_text(f), "src": "Site"} for f in r.site_flags]
+    contra = list(r.contradictions)
+    for item in r.installer_checklist:
+        if item in always:
+            continue
+        if item.startswith("Check on site: "):
+            body = item[len("Check on site: "):]
+            c = next((c for c in contra if body.startswith(c.what)), None)
+            if c is not None:
+                contra.remove(c)
+                out.append({"text": clean_text(c.what), "src": _contradiction_src(h, c)})
+                continue
+            body = re.sub(r"\s*\((?:[^()]|\([^()]*\))*\)\s*$", "", body)   # trailing "(trusted…)" bracket
+            out.append({"text": clean_text(body), "src": "Notes"})
+            continue
+        low = item.lower()
+        src = ("Not documented" if ("not documented" in low or low.startswith("pipe system unknown"))
+               else "Building data" if low.startswith("single-pipe") else "Notes")
+        out.append({"text": clean_text(item), "src": src})
+    return out
 
 # ---------------------------------------------------------------- shared blocks
 
@@ -346,61 +438,328 @@ def answer_card(h: House, r: Result | None, key: str):
 # ---------------------------------------------------------------- tabs
 
 
-def tab_evaluation():
-    B = buildings()
-    res = [(bid, h, ref, evaluate(h)) for bid, h, ref in B]
-    dev = [(ref, r) for _, _, ref, r in res if ref and r]
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Dev verdicts reproduced", f"{sum(r.best_color == ref['verdict'] for ref, r in dev)} / {len(dev)}")
-    loo = None
+@st.cache_data(show_spinner=False)
+def radiator_info_raw() -> dict[str, str]:
+    """Raw `radiator_info` text per building, only to quote it next to the valve note."""
+    out = {}
+    try:
+        for f in sorted((ROOT / "data").glob("buildings_*.csv")):
+            d = pd.read_csv(f)
+            if {"building_id", "radiator_info"} <= set(d.columns):
+                out.update({str(b): str(v) for b, v in zip(d["building_id"], d["radiator_info"]) if pd.notna(v)})
+    except Exception:
+        pass
+    return out
+
+
+def _card(inner: str, pad: str = "22px") -> str:
+    return f'<div class="ev-card" style="padding:{pad}">{inner}</div>'
+
+
+def _card_head(title: str, sub: str, right: str = "") -> str:
+    r_ = f'<span class="num" style="font-size:13px;color:var(--muted)">{right}</span>' if right else ""
+    return ('<div style="padding:18px 22px 8px"><div style="display:flex;justify-content:space-between;'
+            f'align-items:baseline;gap:8px"><h3 style="margin:0;font-size:16px;font-weight:600;color:var(--ink)">{title}</h3>{r_}</div>'
+            f'<p style="margin:4px 0 0;font-size:13px;color:var(--muted)">{sub}</p></div>')
+
+
+def _top_color(r: Result) -> tuple[str, float]:
+    return max((("green", r.p_green), ("yellow", r.p_yellow), ("red", r.p_red)), key=lambda x: x[1])
+
+
+def eval_kpis(B, dev) -> str:
+    ok = sum(r.best_color == ref["verdict"] for _, ref, r in dev)
+    chips_ = []
+    for bid, ref, r in dev:
+        hit = r.best_color == ref["verdict"]
+        chips_.append(pill(r.best_color if hit else "red",
+                           f"{bid} {r.best_color.capitalize()} ✓" if hit
+                           else f"{bid} {r.best_color.capitalize()} ✗ (ref {ref['verdict'].capitalize()})"))
+    c1 = kpi_card("Dev verdicts reproduced", f"{ok} / {len(dev)}",
+                  f'<div style="display:flex;gap:8px;flex-wrap:wrap">{"".join(chips_)}</div>')
     try:
         import calibrate
         loo = calibrate.leave_one_out(B)
-        c2.metric("Load error, leave-one-out", " · ".join(f"{e:+.0f} %" for e in loo["error_pct"]))
-    except Exception:
-        c2.metric("Load error, leave-one-out", "–")
-    c3.metric("Calibrated numbers", f"1 (k = {DEFAULT.k:.2f})")
+        k = calibrate.fit(B).k
+    except Exception as e:
+        loo, k = None, DEFAULT.k
+        st.caption(f"Calibration not available ({e}).")
+    if loo is not None and len(loo):
+        rows = "".join(
+            '<div style="display:grid;grid-template-columns:44px minmax(0,1fr) 60px;align-items:center;gap:10px;font-size:12px">'
+            f'<span style="color:var(--muted)">{esc(str(b))}</span>{diverging_bar(e)}'
+            f'<span class="num" style="text-align:right;font-weight:600;color:var(--ink)">{signed_pct(e)}</span></div>'
+            for b, e in zip(loo["building_id"], loo["error_pct"]))
+        mae = float(loo["error_pct"].abs().mean())
+        c2 = kpi_card("Heat-load error · leave-one-out", f"{mae:.1f} %",
+                      f'<div style="display:flex;flex-direction:column;gap:6px">{rows}</div>'
+                      '<div style="font-size:12px;color:var(--muted)">Each building predicted without using its own '
+                      'reference.</div>', aside="mean absolute")
+        lo_k, hi_k = float(loo["k_fit"].min()), float(loo["k_fit"].max())
+        c3 = kpi_card("Calibration", f"k = {k:.2f}",
+                      '<div style="font-size:13px;color:var(--muted);line-height:1.5">Per-fold fit stays tight: '
+                      f'<span class="num" style="color:var(--ink);font-weight:600">{lo_k:.3f} – {hi_k:.3f}</span>. '
+                      'Nothing else is fitted to the dev set.</div>', aside="1 tuned number")
+    else:
+        c2 = kpi_card("Heat-load error · leave-one-out", "–")
+        c3 = kpi_card("Calibration", f"k = {k:.2f}", aside="1 tuned number")
+    return ('<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px">'
+            f'{c1}{c2}{c3}</div>')
 
-    rows = []
+
+def eval_table(res, sel: str) -> str:
+    legend = "".join(f'<span style="display:flex;align-items:center;gap:6px"><span style="width:10px;height:10px;'
+                     f'border-radius:2px;background:var(--bar-{c[0]});display:block"></span>{c.capitalize()}</span>'
+                     for c in ("green", "yellow", "red"))
+    heads = [("Building", ""), ("Verdict", ""), ("Confidence", "width:180px"), ("Flow temp", ""), ("Heat load", ""),
+             ("Flags", "text-align:right"), ("Next step", ""), ("Lead score", "width:120px")]
+    th = "".join(f'<th class="ev-th" style="{s}">{n}</th>' for n, s in heads)
+    body = []
     for bid, h, ref, r in res:
         if r is None:
+            body.append(f'<tr><td class="ev-td"><b>{esc(bid)}</b></td><td class="ev-td" colspan="7">'
+                        '<span class="ev-sub">No result</span></td></tr>')
             continue
-        mark = (" ✓" if ref["verdict"] == r.best_color else " ✗") if ref else ""
-        rows.append({"Building": bid, "Set": "dev" if ref else "eval", "Verdict": r.best_color.capitalize() + mark,
-                     "How sure": f"G {r.p_green:.0%} · Y {r.p_yellow:.0%} · R {r.p_red:.0%}",
-                     "Water temp.": t_range(r.required_flow_temp_c),
-                     "Heating load": f"{kw(r.heat_load_kw.p50)} · " + (f"ref {ref['heating_load_kw']} kW" if ref
-                                                                        else f"bill {kw(r.heat_load_bill_kw.p50)}"),
-                     "Flags": len(r.contradictions) + len(r.site_flags),
-                     "Visit": VISIT.get(r.visit_type, "–"), "Lead score": round(r.lead_score, 2)})
-    if rows:
-        st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
-    else:
-        st.info(f"Engine not ready yet ({ENGINE_ERR}). Buildings load fine: {', '.join(b for b, *_ in res)}")
-    if loo is not None:
-        with st.expander("Leave-one-out table"):
-            st.dataframe(loo, hide_index=True, width="stretch")
+        is_sel = bid == sel
+        tr = ' style="background:#F3F6FA"' if is_sel else ""
+        first = ' style="box-shadow:inset 3px 0 0 var(--ink)"' if is_sel else ""
+        if ref:
+            hit = ref["verdict"] == r.best_color
+            refmark = (f'<span style="font-size:12px;color:var(--{"g" if hit else "r"}-tx)">'
+                       f'{"✓" if hit else "✗"} ref</span>')
+        else:
+            refmark = '<span style="font-size:12px;color:var(--muted)">no ref</span>'
+        top, p_top = _top_color(r)
+        conf = f"{pct(p_top)} {top}" + (" · close call" if top != r.best_color else "")
+        fl = r.required_flow_temp_c
+        load = r.heat_load_kw.p50
+        if ref:
+            load_sub = f"ref {ref['heating_load_kw']:.1f} · {pct_diff(load, ref['heating_load_kw'])}"
+        else:
+            b = r.heat_load_bill_kw.p50
+            load_sub = "no bill" if b is None else f"bill {b:.1f} · {pct_diff(load, b)}"
+        body.append(
+            f'<tr{tr}><td class="ev-td"{first}><b>{esc(bid)}</b><span class="ev-sub">{"dev" if ref else "held-out"}</span></td>'
+            f'<td class="ev-td">{pill(r.best_color, r.best_color.capitalize())} {refmark}</td>'
+            f'<td class="ev-td">{stacked_bar(r.p_green, r.p_yellow, r.p_red)}<span class="ev-sub num">{conf}</span></td>'
+            f'<td class="ev-td num">{t(fl.p50)}<span class="ev-sub">{flow_span(fl.p10, fl.p90)}</span></td>'
+            f'<td class="ev-td num">{kw(load)}<span class="ev-sub">{load_sub}</span></td>'
+            f'<td class="ev-td num" style="text-align:right">{len(house_flags(h, r))}</td>'
+            f'<td class="ev-td">{NEXT_SHORT.get(r.visit_type, "–")}</td>'
+            f'<td class="ev-td">{score_bar(r.lead_score)}</td></tr>')
+    return ('<div class="ev-card" style="overflow:hidden">'
+            '<div style="display:flex;justify-content:space-between;align-items:center;padding:18px 20px 12px;'
+            'flex-wrap:wrap;gap:8px"><h2 style="margin:0;font-size:16px;font-weight:600;color:var(--ink)">All buildings</h2>'
+            f'<div style="display:flex;gap:14px;font-size:12px;color:var(--muted);align-items:center">{legend}</div></div>'
+            '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:900px;margin:0;'
+            f'border:none"><thead><tr>{th}</tr></thead><tbody>{"".join(body)}</tbody></table></div>'
+            '<div style="padding:12px 20px;font-size:12px;color:var(--muted);border-top:1px solid var(--line-soft)">'
+            'Pick a building below the table to open it.</div></div>')
 
-    sel = st.selectbox("Details", [b for b, *_ in res], index=len(res) - 1)
+
+def _house_line(h: House) -> str:
+    parts = [str(h.build_year) if h.build_year else None,
+             f"{h.living_area_m2:.0f} m²" if h.living_area_m2 else None,
+             FUEL_WORD.get(h.fuel_type or "", h.fuel_type)]
+    n = h.radiator_count
+    if h.heat_distribution == "underfloor":
+        parts.append("underfloor heating")
+    elif h.heat_distribution == "mixed":
+        parts.append(f"{n} radiators, mixed" if n else "radiators and underfloor")
+    elif n:
+        parts.append(f"{n} radiators")
+    return " · ".join(p for p in parts if p)
+
+
+_ANNOT = re.compile(r"\s*\(((?:notes|assum)[^()]*)\)\s*$", re.I)
+
+
+def notes_rows(bid: str, h: House) -> list[tuple[str, str, str]]:
+    """(quote html, field, value html) rows for 'Read from the notes'."""
+    rows = []
+    o = h.notes_obs
+    for f, q in (o.evidence.items() if o else []):
+        m = _ANNOT.search(q or "")
+        note = m.group(1) if m else ""
+        quote = _ANNOT.sub("", q or "").strip()
+        assumed = bool(m) or (o.confidence.get(f, 1) < 0.7)
+        v = getattr(o, f, None)
+        if f == "unheated_area_note":
+            val = "Yes" if v else "None"
+        elif f == "u_values" and v:
+            val = human_value(v) + " W/m²K"
+        else:
+            val = human_value(v)
+        val = val[:1].upper() + val[1:]
+        tag = (f' <span title="{esc(note or "low confidence")}" style="font-size:12px;color:var(--y-tx);'
+               'background:var(--y-bg);padding:2px 8px;border-radius:999px;margin-left:4px;font-weight:500">assumed</span>'
+               if assumed else "")
+        rows.append((f"“{esc(quote)}”", esc(human_field(f)), f"<b>{esc(val)}</b>{tag}"))
+    raw = radiator_info_raw().get(bid, "")
+    for n in h.data_notes:
+        low = n.lower()
+        if "valve" not in low:
+            continue
+        clause = next((c.strip() for c in raw.split(";") if "valve" in c.lower()), "")
+        head, _, rest = n.partition(", ")
+        if "valve blocks" in low:
+            head, rest = "Valve blocks", n[low.index("valve blocks") + len("valve blocks"):].strip()
+        elif "presettable" in low:
+            head = "Presettable"
+        elif "preset" in low:
+            head = "Preset"
+        else:
+            head = head[:1].upper() + head[1:]
+        grey = f' <span style="font-size:12px;color:var(--muted);margin-left:4px">{esc(rest)}</span>' if rest else ""
+        rows.append((f"“{esc(clause)}”" if clause else '<span style="font-style:normal">Radiator info</span>',
+                     "Valves", f"<b>{esc(head)}</b>{grey}"))
+    return rows
+
+
+def short_check(item: str) -> str:
+    s = clean_text(item)
+    if "?" in s or len(s) <= 90:
+        return s
+    head = re.split(r": |\. ", s, maxsplit=1)[0].rstrip(".") + "."
+    if "single-pipe" in s.lower() and "single-pipe" not in head.lower():
+        head += " Single-pipe loop?"
+    return head
+
+
+def eval_detail(bid: str, h: House, ref: dict | None, r: Result) -> str:
+    tag = (pill("none", f"Dev · reference: {ref['verdict'].capitalize()}") if ref
+           else pill("none", "Held-out · no reference verdict"))
+    head = ('<div style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap">'
+            f'<h2 style="margin:0;font-size:26px;font-weight:700;letter-spacing:-0.01em;color:var(--ink)">{esc(bid)}</h2>'
+            f'<div style="font-size:16px;color:var(--ink)">{esc(_house_line(h))}</div>{tag}</div>')
+
+    # left 1: conflicting inputs
+    rows = []
+    for c in r.contradictions:
+        lab, val = ("Trusted", trusted_label(c.trusted)) if c.trusted else ("Status", "Open, installer to check")
+        why = f'<span style="font-size:13px;color:var(--muted)">{esc(clean_text(c.why))}</span>' if c.why else ""
+        rows.append('<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px 16px;'
+                    'padding:16px 22px;border-top:1px solid var(--line-soft)">'
+                    f'<div style="font-size:14px;line-height:1.5;color:var(--ink)">{esc(clean_text(c.what))}</div>'
+                    '<div style="display:flex;flex-direction:column;gap:4px">'
+                    f'<span style="font-size:12px;color:var(--muted)">{lab}</span>'
+                    f'<span style="font-size:14px;font-weight:600;color:var(--ink)">{esc(val)}</span>{why}</div></div>')
+    if not rows:
+        rows = ['<div style="padding:14px 22px 18px;border-top:1px solid var(--line-soft);font-size:14px;'
+                'color:var(--muted)">No conflicting inputs found.</div>']
+    conflicts = ('<div class="ev-card" style="overflow:hidden">'
+                 + _card_head("Conflicting inputs", "Where the sources disagreed, and which one the model went with.")
+                 + "".join(rows) + "</div>")
+
+    # left 2: read from the notes
+    o = h.notes_obs
+    nrows = notes_rows(bid, h)
+    sub = "What the AI pulled out of free text, field by field."
+    if o and o.method == "keywords":
+        sub += " Rule-based analysis (no AI available)."
+    if nrows:
+        tb = "".join('<tr><td class="ev-td" style="padding-left:22px;white-space:normal;color:#3A4A66;font-style:italic">'
+                     f'{q}</td><td class="ev-td" style="white-space:normal">{f}</td>'
+                     f'<td class="ev-td" style="white-space:normal">{v}</td></tr>' for q, f, v in nrows)
+        notes_body = ('<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:480px;'
+                      'margin:0;border:none"><thead><tr><th class="ev-th" style="padding-left:22px">Note says</th>'
+                      f'<th class="ev-th">Field</th><th class="ev-th">Value</th></tr></thead><tbody>{tb}</tbody></table></div>')
+    else:
+        notes_body = ('<div style="padding:14px 22px 18px;border-top:1px solid var(--line-soft);font-size:14px;'
+                      'color:var(--muted)">Nothing in the notes changed the inputs.</div>')
+    notes = '<div class="ev-card" style="overflow:hidden">' + _card_head("Read from the notes", sub) + notes_body + "</div>"
+
+    # right 1: verdict
+    title, word = headline(r)
+    p_best = {"green": r.p_green, "yellow": r.p_yellow, "red": r.p_red}[r.best_color]
+    fl = r.required_flow_temp_c
+    approx = "" if fl.p50 is None or fl.p50 > 70 else "≈ "
+    bill = r.heat_load_bill_kw.p50
+    if r.saving_eur is None:
+        cost_big = "–"
+    else:
+        cost_big = f"{'−' if r.saving_eur > 0 else '+'}€{abs(r.saving_eur):,.0f} / yr"
+    cost_note = (f'<div style="font-size:12px;color:var(--muted);grid-column:1/-1">{esc(clean_text(r.cost_note))}</div>'
+                 if r.cost_note else "")
+    verdict = _card(
+        '<div style="display:flex;flex-direction:column;gap:18px">'
+        '<div style="display:flex;align-items:center;gap:14px">'
+        f'<span style="width:40px;height:40px;border-radius:20px;background:{_FILLED[r.best_color][0]};display:block;flex:none"></span>'
+        f'<div><div style="font-size:24px;font-weight:700;line-height:1.1;color:var(--ink)">{esc(title)}</div>'
+        f'<div style="font-size:13px;color:var(--muted)">{esc(word)} · {pct(p_best)} of simulations</div></div></div>'
+        f'{stacked_bar(r.p_green, r.p_yellow, r.p_red, width="100%", height=10)}'
+        '<div style="display:flex;flex-direction:column;gap:10px">'
+        '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">'
+        '<span style="font-size:13px;color:var(--muted);font-weight:500">Flow temperature, coldest day</span>'
+        f'<span class="num" style="font-size:18px;font-weight:700;color:var(--ink)">{approx}{t(fl.p50)}</span></div>'
+        f'{flow_scale(fl.p10, fl.p50, fl.p90)}'
+        f'<div style="font-size:12px;color:var(--muted)">Grey bar = likely range, {flow_span(fl.p10, fl.p90)}. '
+        'Lower is cheaper to run.</div></div>'
+        '<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;border-top:1px solid var(--line-soft);'
+        'padding-top:16px">'
+        '<div><div style="font-size:12px;color:var(--muted)">Heat load</div>'
+        f'<div class="num" style="font-size:18px;font-weight:700;color:var(--ink)">{kw(r.heat_load_kw.p50)}</div>'
+        f'<div style="font-size:12px;color:var(--muted)">{"no bill" if bill is None else f"bill says {bill:.1f}"}</div></div>'
+        '<div><div style="font-size:12px;color:var(--muted)">Running cost</div>'
+        f'<div class="num" style="font-size:18px;font-weight:700;color:var(--ink)">{cost_big}</div>'
+        f'<div style="font-size:12px;color:var(--muted)">vs. {FUEL_WORD.get(h.fuel_type or "", "the current heating")} today</div></div>'
+        f'{cost_note}</div></div>')
+
+    # right 2: still open
+    oc = r.open_checks
+    if oc:
+        lis = "".join(f"<li>{esc(short_check(c.item))}</li>" for c in oc)
+        still = _card('<div style="display:flex;flex-direction:column;gap:12px">'
+                      '<div style="display:flex;justify-content:space-between;align-items:baseline">'
+                      '<h3 style="margin:0;font-size:16px;font-weight:600;color:var(--ink)">Still open</h3>'
+                      f'<span class="num" style="font-size:13px;color:var(--muted)">{len(oc)}</span></div>'
+                      '<ol style="margin:0;padding-left:20px;display:flex;flex-direction:column;gap:10px;font-size:14px;'
+                      f'line-height:1.45;color:var(--ink)">{lis}</ol></div>', pad="20px 22px")
+    else:
+        still = ""
+    return ('<div style="display:flex;flex-direction:column;gap:18px">' + head
+            + '<div style="display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start">'
+            f'<div style="flex:999 1 520px;min-width:0;display:flex;flex-direction:column;gap:20px">{conflicts}{notes}</div>'
+            f'<div style="flex:1 1 340px;max-width:100%;min-width:0;display:flex;flex-direction:column;gap:16px">{verdict}{still}</div>'
+            '</div></div>')
+
+
+def tab_evaluation():
+    B = buildings()
+    res = [(bid, h, ref, evaluate(h)) for bid, h, ref in B]
+    dev = [(bid, ref, r) for bid, _, ref, r in res if ref and r]
+    n_dev = sum(1 for _, _, ref in B if ref)
+    n_out = len(B) - n_dev
+    st.html('<div style="display:flex;flex-direction:column;gap:6px">'
+            '<h1 style="margin:0;padding:0;font-size:26px;font-weight:700;letter-spacing:-0.01em;color:var(--ink)">'
+            'How well does it hold up?</h1>'
+            f'<p style="margin:0;font-size:15px;color:var(--muted)">{len(B)} buildings. {n_dev} dev case'
+            f'{"s" if n_dev != 1 else ""} with a reference verdict and heat load, {n_out} held-out case'
+            f'{"s" if n_out != 1 else ""} with only the bill.</p></div>')
+    if not any(r for *_, r in res):
+        st.info(f"Engine not ready yet ({ENGINE_ERR}). Buildings load fine: {', '.join(b for b, *_ in res)}")
+        return
+    st.html(eval_kpis(B, dev))
+
+    ids = [b for b, *_ in res]
+    table_slot = st.container()
+    default = "B-05" if "B-05" in ids else ids[-1]
+    try:
+        sel = st.segmented_control("Open a building", ids, default=default, key="eval_sel", required=True)
+    except TypeError:
+        sel = st.segmented_control("Open a building", ids, default=default, key="eval_sel")
+    except AttributeError:
+        sel = st.radio("Open a building", ids, index=ids.index(default), horizontal=True, key="eval_sel")
+    sel = sel or st.session_state.get("eval_last", default)
+    st.session_state["eval_last"] = sel
+    with table_slot:
+        st.html(eval_table(res, sel))
+
     bid, h, ref, r = next(x for x in res if x[0] == sel)
-    st.subheader(f"{bid} · {h.build_year} · {h.living_area_m2 or 0:.0f} m² · {h.fuel_type} · "
-                 f"{h.radiator_count or '?'} radiators · {h.heat_distribution}")
-    left, right = st.columns([3, 2])
-    with left:
-        if r:
-            st.markdown("**Contradictions · which source we trusted**")
-            for c in r.contradictions or []:
-                st.markdown(f"- {c.what}" + (f" → trusted **{c.trusted}**" if c.trusted else "") + (f": {c.why}" if c.why else ""))
-            if not r.contradictions:
-                st.caption("None found.")
-        o = h.notes_obs
-        st.markdown("**What the AI read in the notes**" + (" (rule-based analysis)" if o and o.method == "keywords" else ""))
-        for f, q in (o.evidence.items() if o else []):
-            st.markdown(f"> \"{q}\"  \n→ {f.replace('_', ' ')}: {getattr(o, f, '')}")
-        for n in h.data_notes:
-            st.caption(n)
-    with right:
-        answer_card(h, r, f"eval_{bid}")
+    if r is None:
+        st.info(f"No result for {bid}.")
+        return
+    st.html(eval_detail(bid, h, ref, r))
 
 
 CHIPS = [("build_year", "{}"), ("living_area_m2", "{:.0f} m²"), ("building_type", "{}"), ("renovation", "{} renovated"),
