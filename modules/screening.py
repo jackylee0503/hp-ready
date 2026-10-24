@@ -1,4 +1,8 @@
-"""screening (hybrid candidate for ML module 3 "calculation"): engine.py result + best/worst-case screening bounds.
+"""screening (default "calculation" since 2026-10-24): engine.py result + best/worst-case screening bounds.
+
+Hand-over rule: when the ML team's own modules/calculation.py is implemented (its probe answers ok), this module
+passes every request straight to it and returns its reply untouched (success or failure, so the app's engine.py
+fallback and its grey "calculation module failed" line still work). Until then: engine.py + the screening extras.
 
 Origin: the teammate package heat_pump_screening v2.0.0 (2026-10-24), an interval "decision tree" after Fraunhofer ISE
 WP-QS im Bestand (2nd ed., 25 Nov 2025) and the UBA room-by-room 55 °C check. Ported to the HP-Ready contract:
@@ -17,10 +21,10 @@ WP-QS im Bestand (2nd ed., 25 Nov 2025) and the UBA room-by-room 55 °C check. P
 
 Contract: CONTRACT.md "MVP" + §1-§3, request/reply exactly like modules/calculation.py. No new dependencies,
 no network, deterministic (`seed` goes to the engine's Monte Carlo), well under the 20 s limit.
-Try it:  HP_MODULE_CALCULATION="modules.screening:run" streamlit run app.py
+Switched on in orchestrator.REGISTRY["calculation"]. Plain engine.py instead: HP_MODULES=0 (no modules at all).
 CLI:     python -m modules.screening < contracts/examples/calc_input_B-05.json
-A/B:     HP_MODULE_CALCULATION="modules.screening:run" python -c "import orchestrator as O; from loader import
-         load_buildings; print(O.compare_summary(O.compare_logic(load_buildings(use_llm=False))))"
+A/B:     python -c "import orchestrator as O; from loader import load_buildings;
+         print(O.compare_summary(O.compare_logic(load_buildings(use_llm=False))))"
 """
 from __future__ import annotations
 
@@ -28,6 +32,7 @@ import importlib
 import itertools
 import json
 import sys
+from pathlib import Path
 
 from schema import (BAND_GREEN_MAX_C, BAND_YELLOW_MAX_C, DEFAULT, DISPLAY_CLIP_C, RADIATOR_KW, BASELINE_INFO,
                     Explanation, House, ModelInfo, Params, Result, Step, with_core)
@@ -170,7 +175,12 @@ def add_extras(h: House, r: Result, sc: dict) -> Result:
                           value=f"{span(*lo_hi)} · {colour_words(*lo_hi)}",
                           assumption="every corner of: " + ", ".join(corners)
                                      + "; same EN 442 law as above; bounds, not a p10-p90 range"))
-    # A sentence for people only when it settles something ("any colour" says nothing; it stays in the trace).
+    # Evaluation shows `explanations` ("Why the model decided this"): the bounds always, the size line when it settles
+    # a colour for at least one size ("any colour" for every size says nothing; it stays in the trace).
+    out.explanations.append(Explanation(
+        feature="flow_temp_c", value=span(*lo_hi), target="flow_temp_c", unit="°C",
+        text=f"Best and worst case over every input corner: {span(*lo_hi)} ({colour_words(*lo_hi)}). "
+             "Bounds, not a likely range; the colour comes from the likely range."))
     if "by_size" in sc:
         parts = [f"{z} {span(*v['flow_c'])} ({colour_words(*v['flow_c'])})" for z, v in sc["by_size"].items()]
         out.trace.append(Step(label="If the radiators are small / medium / large", value=" · ".join(parts),
@@ -179,10 +189,6 @@ def add_extras(h: House, r: Result, sc: dict) -> Result:
             out.explanations.append(Explanation(
                 feature="radiator_size", value="not documented", target="flow_temp_c", unit="°C",
                 text="Radiator size decides it. Best and worst case: " + "; ".join(parts) + "."))
-    elif colour_words(*lo_hi) != "any colour":
-        out.explanations.append(Explanation(
-            feature="radiator_size", value=b["size"], target="flow_temp_c", unit="°C",
-            text=f"Best and worst case over all inputs: {span(*lo_hi)} ({colour_words(*lo_hi)})."))
     f = sc["water_flow_m3_h"]
     out.trace.append(Step(label="Water flow at design load", value=f"{f[0]:.1f}–{f[1]:.1f} m³/h",
                           assumption="heat load ÷ (1.163 × flow/return 5–10 K); the installer checks pipes and pump"))
@@ -194,6 +200,40 @@ def add_extras(h: House, r: Result, sc: dict) -> Result:
 
 
 # ---------------------------------------------------------------- module entry
+
+ML_MODULE = "modules.calculation"      # the ML team's slot file; takes over as soon as it is implemented
+_SEEN: dict[str, float] = {}           # module name -> mtime when (re)loaded / probed
+_READY: dict[tuple, bool] = {}
+
+
+def _mtime(f) -> float:
+    try:
+        return Path(f).stat().st_mtime
+    except (OSError, TypeError):
+        return 0.0
+
+
+def _ml_module():
+    """modules/calculation.py when its probe says implemented (ok, or a sensible bad_input/unreadable, as in
+    orchestrator.available), else None. Reloaded when the file changes. Never raises."""
+    try:
+        mod = sys.modules.get(ML_MODULE)
+        if mod is None:
+            mod = importlib.import_module(ML_MODULE)
+        elif _mtime(getattr(mod, "__file__", None)) != _SEEN.get(ML_MODULE):
+            importlib.invalidate_caches()
+            mod = importlib.reload(mod)
+        stamp = _mtime(getattr(mod, "__file__", None))
+        _SEEN[ML_MODULE] = stamp
+        key = (ML_MODULE, stamp)
+        if key not in _READY:
+            rep = mod.run({"probe": True})
+            code = ((rep or {}).get("error") or {}).get("code") if isinstance(rep, dict) else None
+            _READY[key] = isinstance(rep, dict) and (rep.get("ok") is True or code in ("bad_input", "unreadable"))
+        return mod if _READY[key] else None
+    except Exception:  # noqa: BLE001
+        return None
+
 
 def _baseline(h: House, n: int, seed: int) -> tuple[Result | None, str | None]:
     """engine.py evaluate + installer_brief (fallback engine_tracer), adapted to contract v2 like orchestrator.baseline."""
@@ -217,6 +257,12 @@ def run(request: dict) -> dict:
         return fail("bad_input", "request must be a JSON object")
     if request.get("probe"):
         return ok(None) if IMPLEMENTED else fail("unsupported", "not enabled")
+    ml = _ml_module()
+    if ml is not None:                         # hand-over: the ML team's model answers, untouched
+        try:
+            return ml.run(request)
+        except Exception as e:  # noqa: BLE001
+            return fail("internal", f"{ML_MODULE}: {type(e).__name__}: {e}"[:300])
     raw = request.get("house")
     if not isinstance(raw, dict):
         return fail("bad_input", "house object is required")
